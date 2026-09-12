@@ -1,6 +1,8 @@
 # Pulse
 
-> Private Pulse deployment, adapted from the open-source Morgenruf project (MIT).
+> Private fork of the open-source [Morgenruf](https://github.com/morgenruf/morgenruf) project (MIT), with improvements for the TechOps daily standup workflow.
+
+Pulse retains Morgenruf’s self-hosted Slack standup foundation and adds a defined response window, follow-up reminders, and a channel notice for missing updates.
 
 [![Release](https://img.shields.io/github/v/release/morgenruf/morgenruf?label=latest&color=brightgreen)](https://github.com/morgenruf/morgenruf/releases)
 [![Tests](https://github.com/morgenruf/morgenruf/actions/workflows/test.yml/badge.svg)](https://github.com/morgenruf/morgenruf/actions/workflows/test.yml)
