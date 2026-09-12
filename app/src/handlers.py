@@ -441,6 +441,14 @@ def _complete_standup(user_id: str, session, client) -> None:
                 logger.warning("Unexpected error in _complete_standup fetching schedule config: %s", e)
 
             notify_on_report = sched_config.get("notify_on_report", True)
+            try:
+                from blockers import has_blockers  # noqa: PLC0415
+
+                missing_mention = (sched_config.get("missing_mention") or "").strip()
+                if missing_mention and has_blockers(session.questions, question_answers):
+                    formatted = f"🚧 <@{missing_mention}> — bloqueo reportado por <@{user_id}>\n{formatted}"
+            except Exception as e:
+                logger.warning("Unexpected error in _complete_standup checking blockers: %s", e)
             if not notify_on_report:
                 # Replace Slack mention with plain display name to avoid notifying the user
                 member_name = user_id
@@ -1339,7 +1347,7 @@ def register_handlers(app: App) -> None:
     @app.event("app_mention")
     def handle_mention(event, say):  # noqa: ANN001
         say(
-            "👋 I'm Morgenruf, your standup bot! Use `/help` to see available commands or check your *App Home* tab for settings and history."
+            "👋 I'm Pulse, your standup bot! Use `/help` to see available commands or check your *App Home* tab for settings and history."
         )
 
     @app.event("member_joined_channel")
@@ -1369,7 +1377,7 @@ def register_handlers(app: App) -> None:
             client.chat_postMessage(
                 channel=user_id,
                 text=(
-                    "👋 Welcome to the team! I'm Morgenruf, your daily standup bot.\n\n"
+                    "👋 Welcome to the team! I'm Pulse, your daily standup bot.\n\n"
                     "I'll DM you each morning with a few quick questions to share with your team. "
                     "Use `/standup` to try a standup now, or `/help` to learn more."
                 ),
@@ -1508,9 +1516,9 @@ def register_handlers(app: App) -> None:
         user_id: str = body["user_id"]
         client.chat_postMessage(
             channel=user_id,
-            text="Morgenruf Help",
+            text="Pulse Help",
             blocks=[
-                {"type": "header", "text": {"type": "plain_text", "text": "🌅 Morgenruf — Commands"}},
+                {"type": "header", "text": {"type": "plain_text", "text": "🌅 Pulse — Commands"}},
                 {
                     "type": "section",
                     "text": {
@@ -1524,7 +1532,7 @@ def register_handlers(app: App) -> None:
                             "*Other ways to interact:*\n"
                             "• Reply to a standup DM at any time to start\n"
                             "• Use the *App Home* tab to see your history and settings\n"
-                            "• Mention `@Morgenruf` in any channel for help\n\n"
+                            "• Mention `@Pulse` in any channel for help\n\n"
                             "📖 Full docs: <https://docs.morgenruf.dev|docs.morgenruf.dev>"
                         ),
                     },

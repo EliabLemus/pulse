@@ -602,6 +602,70 @@ def _send_reminder_to_workspace(
         logger.warning("Participation workflow rules failed for %s: %s", team_id, exc)
 
 
+def _pending_schedule_participants(team_id: str, schedule_id: int) -> tuple[dict | None, list[str]]:
+    """Return the active schedule and its participants still expected today."""
+    try:
+        import db  # noqa: PLC0415
+
+        schedule = db.get_standup_schedule(team_id, schedule_id)
+        if not schedule or not schedule.get("active"):
+            return None, []
+        submitted = {
+            row.get("user_id")
+            for row in db.get_standups_today_for_schedule(team_id, schedule_id)
+            if row.get("user_id")
+        }
+        pending = []
+        seen = set()
+        for user_id in schedule.get("participants") or []:
+            if not user_id or user_id in seen:
+                continue
+            seen.add(user_id)
+            if user_id in submitted or db.is_skipped_today(team_id, user_id) or db.is_on_vacation(team_id, user_id):
+                continue
+            pending.append(user_id)
+        return schedule, pending
+    except Exception as exc:
+        logger.warning("Could not load pending participants for %s/%s: %s", team_id, schedule_id, exc)
+        return None, []
+
+
+def send_pending_reminders(team_id: str, bot_token: str, schedule_id: int) -> None:
+    """DM only schedule participants who have not submitted today's update."""
+    schedule, pending = _pending_schedule_participants(team_id, schedule_id)
+    if not schedule or not pending:
+        return
+    client = WebClient(token=_fresh_bot_token(team_id, bot_token))
+    label = (schedule.get("name") or "").strip() or "standup"
+    for user_id in pending:
+        try:
+            _slack_dm_with_retry(
+                client,
+                user_id,
+                team_id=team_id,
+                text=f"⏰ Recordatorio: falta tu update para *{label}*. Responde por aquí 🙏",
+            )
+        except Exception as exc:
+            logger.warning("Failed pending reminder DM to %s / %s: %s", team_id, user_id, exc)
+
+
+def close_window(team_id: str, bot_token: str, schedule_id: int) -> None:
+    """Report pending schedule participants to the schedule's channel at close."""
+    schedule, pending = _pending_schedule_participants(team_id, schedule_id)
+    if not schedule or not pending:
+        return
+    channel_id = schedule.get("channel_id") or ""
+    if not channel_id:
+        logger.warning("Cannot close standup window for %s/%s: no channel", team_id, schedule_id)
+        return
+    text = "\n".join(f"⚠️ Sin update: <@{user_id}>" for user_id in pending)
+    client = WebClient(token=_fresh_bot_token(team_id, bot_token))
+    try:
+        _call_with_auth_retry(team_id, client, lambda current: current.chat_postMessage(channel=channel_id, text=text))
+    except Exception as exc:
+        logger.warning("Failed window-close post for %s/%s: %s", team_id, schedule_id, exc)
+
+
 def _send_weekly_digest(team_id: str, bot_token: str) -> None:
     """Send a weekly summary email to the workspace admin."""
     try:
@@ -1051,6 +1115,46 @@ def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> Non
             replace_existing=True,
         )
 
+    pending_reminder_times = schedule.get("pending_reminder_times") or ""
+    for clock in (part.strip() for part in pending_reminder_times.split(",")):
+        if not clock:
+            continue
+        try:
+            pending_hour, pending_minute = (int(part) for part in clock.split(":"))
+            if not (0 <= pending_hour <= 23 and 0 <= pending_minute <= 59):
+                raise ValueError("outside 24-hour clock")
+        except (TypeError, ValueError):
+            logger.warning("Skipping invalid pending reminder time %r for schedule %s", clock, schedule_id)
+            continue
+        scheduler.add_job(
+            send_pending_reminders,
+            trigger=CronTrigger(
+                hour=pending_hour, minute=pending_minute, day_of_week=schedule_days, timezone=tz
+            ),
+            args=[team_id, bot_token, schedule_id],
+            id=f"pending_reminder_{team_id}_{schedule_id}_{pending_hour:02d}{pending_minute:02d}",
+            name=f"Pending Reminder — {schedule.get('name', 'Standup')} — {team_id}",
+            replace_existing=True,
+        )
+
+    window_end = (schedule.get("window_end") or "").strip()
+    if window_end:
+        try:
+            close_hour, close_minute = (int(part) for part in window_end.split(":"))
+            if not (0 <= close_hour <= 23 and 0 <= close_minute <= 59):
+                raise ValueError("outside 24-hour clock")
+        except (TypeError, ValueError):
+            logger.warning("Skipping invalid window end %r for schedule %s", window_end, schedule_id)
+        else:
+            scheduler.add_job(
+                close_window,
+                trigger=CronTrigger(hour=close_hour, minute=close_minute, day_of_week=schedule_days, timezone=tz),
+                args=[team_id, bot_token, schedule_id],
+                id=f"window_close_{team_id}_{schedule_id}",
+                name=f"Window Close — {schedule.get('name', 'Standup')} — {team_id}",
+                replace_existing=True,
+            )
+
     weekend_reminder = bool(schedule.get("weekend_reminder")) or reminder_minutes == -1
     if weekend_reminder:
         scheduler.add_job(
@@ -1115,6 +1219,9 @@ _SCHEDULE_TRIGGER_FIELDS = (
     "reminder_minutes",
     "weekend_reminder",
     "report_time",
+    "pending_reminder_times",
+    "window_end",
+    "missing_mention",
 )
 _WORKSPACE_TRIGGER_FIELDS = (
     "channel_id",
@@ -1145,7 +1252,20 @@ def _schedule_job_ids(team_id: str, schedule_id: int) -> tuple[str, ...]:
         f"reminder_schedule_{team_id}_{schedule_id}",
         f"weekend_reminder_schedule_{team_id}_{schedule_id}",
         f"report_schedule_{team_id}_{schedule_id}",
+        f"window_close_{team_id}_{schedule_id}",
     )
+
+
+def _remove_schedule_jobs(scheduler: BackgroundScheduler, team_id: str, schedule_id: int) -> None:
+    """Remove a schedule's fixed and dynamically-timed pending reminder jobs."""
+    _remove_jobs(scheduler, _schedule_job_ids(team_id, schedule_id))
+    prefix = f"pending_reminder_{team_id}_{schedule_id}_"
+    for job in scheduler.get_jobs():
+        if job.id.startswith(prefix):
+            try:
+                scheduler.remove_job(job.id)
+            except Exception:  # noqa: S110 - concurrent scheduler changes are harmless here
+                pass
 
 
 def _workspace_job_ids(team_id: str, digests_too: bool = False) -> tuple[str, ...]:
@@ -1239,10 +1359,10 @@ def _sync_jobs_from_db() -> None:
         if _synced_schedule_fps.get(key) != fp:
             # Drop the whole job group first so sub-jobs that are no longer
             # configured (e.g. a reminder switched off) don't linger.
-            _remove_jobs(_scheduler, _schedule_job_ids(*key))
+            _remove_schedule_jobs(_scheduler, *key)
             register_schedule_job(_scheduler, sched)
     for key in set(_synced_schedule_fps) - set(desired):
-        _remove_jobs(_scheduler, _schedule_job_ids(*key))
+        _remove_schedule_jobs(_scheduler, *key)
         logger.info("Schedule sync: removed jobs for deleted/inactive schedule %s/%s", key[0], key[1])
     _synced_schedule_fps.clear()
     _synced_schedule_fps.update(desired)

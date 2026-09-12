@@ -1,6 +1,6 @@
-# Morgenruf 🌅
+# Pulse
 
-> **German:** *Morgenruf* — "morning call" · Built over a weekend at a Tim Hortons in Toronto 🇨🇦☕
+> Private Pulse deployment, adapted from the open-source Morgenruf project (MIT).
 
 [![Release](https://img.shields.io/github/v/release/morgenruf/morgenruf?label=latest&color=brightgreen)](https://github.com/morgenruf/morgenruf/releases)
 [![Tests](https://github.com/morgenruf/morgenruf/actions/workflows/test.yml/badge.svg)](https://github.com/morgenruf/morgenruf/actions/workflows/test.yml)

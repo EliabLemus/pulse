@@ -1302,6 +1302,18 @@ def get_standup_schedules(team_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_standups_today_for_schedule(team_id: str, schedule_id: int) -> list[dict]:
+    """Return today's submissions attributed to one standup schedule."""
+    sql = """
+        SELECT * FROM standups
+        WHERE team_id = %s AND schedule_id = %s AND standup_date = CURRENT_DATE
+    """
+    with db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (team_id, schedule_id))
+            return [dict(row) for row in cur.fetchall()]
+
+
 def create_standup_schedule(team_id: str, **kwargs) -> dict:
     """Insert a new standup schedule row and return it."""
     allowed = {
@@ -1324,6 +1336,9 @@ def create_standup_schedule(team_id: str, **kwargs) -> dict:
         "prepopulate_answers",
         "allow_edit_after_report",
         "post_summary",
+        "pending_reminder_times",
+        "window_end",
+        "missing_mention",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if "questions" in fields and isinstance(fields["questions"], list):
@@ -1503,6 +1518,9 @@ def update_standup_schedule(team_id: str, schedule_id: int, **kwargs) -> dict | 
         "prepopulate_answers",
         "allow_edit_after_report",
         "post_summary",
+        "pending_reminder_times",
+        "window_end",
+        "missing_mention",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
