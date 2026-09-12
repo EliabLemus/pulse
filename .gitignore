@@ -1,4 +1,5 @@
 .env
+.env.techops
 teams.yaml
 __pycache__/
 *.pyc
