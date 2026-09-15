@@ -169,13 +169,20 @@ def _next_run_text(schedule: dict) -> str:
 _DEFAULT_LABELS = ["✅ Yesterday", "🎯 Today", "🚧 Blockers"]
 
 
+_MESES = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
 def _format_standup(
     user_id: str, answers: list[str], mood: str | None = None, questions: list[str] | None = None
 ) -> str:
     """Format collected answers into a structured standup post."""
     import blocks as _blocks  # noqa: PLC0415
 
-    date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
+    now = datetime.now(timezone.utc)
+    date_str = f"{now.day} de {_MESES[now.month - 1]} de {now.year}"
 
     labels = questions or _DEFAULT_LABELS
     parts = [f"*Avances de <@{user_id}>* - {date_str}\n"]
@@ -494,7 +501,7 @@ def _complete_standup(user_id: str, session, client) -> None:
             if not parent_ts:
                 # Create parent message for today's thread — polished like competitors
                 standup_name = sched_config.get("name") or session.standup_name or "Team Standup"
-                display_date = now_utc.strftime("%a, %b %d.")
+                display_date = f"{now_utc.day} de {_MESES[now_utc.month - 1]}"
                 parent = client.chat_postMessage(
                     channel=channel,
                     text=f"*{standup_name}* — {display_date}",
