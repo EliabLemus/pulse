@@ -396,6 +396,100 @@ class TestSingleFormEdit:
         )
         db_mock.save_standup.assert_not_called()
 
+    def _edit_session(self) -> "state.UserSession":
+        return state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Q1", "Q2", "Q3"],
+            answers=["ayer editado", "hoy", "sin bloqueos"],
+            editing_standup_id=42,
+        )
+
+    def test_edit_updates_the_original_channel_message(self):
+        import handlers
+
+        client = MagicMock()
+        db_mock = MagicMock()
+        db_mock.get_standup_by_id.return_value = {
+            "message_channel": "C1",
+            "message_ts": "111.222",
+        }
+        with patch.dict(sys.modules, {"db": db_mock}):
+            handlers._complete_standup("U1", self._edit_session(), client)
+
+        update = client.chat_update.call_args.kwargs
+        assert update["channel"] == "C1"
+        assert update["ts"] == "111.222"
+        assert "ayer editado" in update["text"]
+        channels_posted = [
+            (c.kwargs.get("channel") or (c.args[0].get("channel") if c.args and isinstance(c.args[0], dict) else None))
+            for c in client.chat_postMessage.call_args_list
+        ]
+        assert "C1" not in channels_posted  # no duplicate in the channel
+
+    def test_edit_falls_back_to_thread_reply_without_stored_ts(self):
+        import handlers
+
+        client = MagicMock()
+        db_mock = MagicMock()
+        db_mock.get_standup_by_id.return_value = {}
+        db_mock.get_daily_thread_ts.return_value = "999.888"
+        with patch.dict(sys.modules, {"db": db_mock}):
+            handlers._complete_standup("U1", self._edit_session(), client)
+
+        client.chat_update.assert_not_called()
+        thread_reply = next(
+            c
+            for c in client.chat_postMessage.call_args_list
+            if c.kwargs.get("thread_ts") == "999.888"
+        )
+        assert "✏️" in thread_reply.kwargs["text"]
+
+    def test_edit_falls_back_to_thread_reply_when_update_fails(self):
+        import handlers
+
+        client = MagicMock()
+        client.chat_update.side_effect = RuntimeError("msg_not_found")
+        db_mock = MagicMock()
+        db_mock.get_standup_by_id.return_value = {
+            "message_channel": "C1",
+            "message_ts": "111.222",
+        }
+        db_mock.get_daily_thread_ts.return_value = "999.888"
+        with patch.dict(sys.modules, {"db": db_mock}):
+            handlers._complete_standup("U1", self._edit_session(), client)
+
+        thread_reply = next(
+            c
+            for c in client.chat_postMessage.call_args_list
+            if c.kwargs.get("thread_ts") == "999.888"
+        )
+        assert "✏️" in thread_reply.kwargs["text"]
+
+    def test_first_post_records_its_message_ts(self):
+        import handlers
+
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "555.666"}
+        db_mock = MagicMock()
+        db_mock.save_standup.return_value = 42
+        db_mock.get_standup_schedule_for_channel.return_value = {
+            "channel_id": "C1",
+            "notify_on_report": True,
+        }
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Q1", "Q2", "Q3"],
+            answers=["ayer", "hoy", "sin bloqueos"],
+        )
+        with patch.dict(sys.modules, {"db": db_mock}):
+            handlers._complete_standup("U1", session, client)
+
+        db_mock.set_standup_message.assert_called_once_with("T1", 42, "C1", "555.666")
+
 
 # ---------------------------------------------------------------------------
 # _send_question_block

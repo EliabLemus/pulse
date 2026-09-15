@@ -195,6 +195,15 @@ class TestSkipHelpers:
         assert "CURRENT_DATE" in sql
         cur.execute.assert_called_once_with(sql, ("T1", "U1"))
 
+    def test_set_standup_message_updates_row(self):
+        pool, conn, cur = _mock_pool()
+        with patch.object(db, "_pool", pool):
+            db.set_standup_message("T1", 42, "C1", "111.222")
+        sql = cur.execute.call_args.args[0]
+        assert "UPDATE standups" in sql
+        assert "message_channel" in sql and "message_ts" in sql
+        cur.execute.assert_called_once_with(sql, ("C1", "111.222", 42, "T1"))
+
 
 # ---------------------------------------------------------------------------
 # get_member_role

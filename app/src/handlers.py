@@ -507,22 +507,52 @@ def _complete_standup(user_id: str, session, client) -> None:
 
             _daily_thread_cache[thread_key] = parent_ts
 
-            # Mark edits so teammates can tell which message is the latest version;
-            # we don't have the original reply's ts to update in place, so post
-            # the updated version as a new thread reply with a clear indicator.
+            # Mark edits so teammates can tell which message is the latest
+            # version when we cannot update the original in place.
             channel_text = f"✏️ *Updated standup*\n{formatted}" if is_edit else formatted
-            client.chat_postMessage(
-                channel=channel,
-                text=channel_text,
-                thread_ts=parent_ts,
-                unfurl_links=False,
-            )
-            logger.info(
-                "Posted %s for %s to %s (thread)",
-                "standup update" if is_edit else "standup",
-                user_id,
-                channel,
-            )
+
+            # Prefer updating the original message in place on edits; only
+            # fall back to a new thread reply when there is no stored pointer
+            # (submissions before this existed) or the update fails (e.g. the
+            # original message was deleted).
+            edited_in_place = False
+            if is_edit:
+                try:
+                    orig = _db.get_standup_by_id(int(session.editing_standup_id or 0)) or {}
+                    orig_ts = orig.get("message_ts") or ""
+                    orig_channel = orig.get("message_channel") or ""
+                    if orig_ts and orig_channel:
+                        client.chat_update(channel=orig_channel, ts=orig_ts, text=formatted)
+                        edited_in_place = True
+                except Exception as e:
+                    logger.warning("Could not update original standup message for %s: %s", user_id, e)
+
+            if not edited_in_place:
+                response = client.chat_postMessage(
+                    channel=channel,
+                    text=channel_text,
+                    thread_ts=parent_ts,
+                    unfurl_links=False,
+                )
+                # Remember where this standup lives so future edits update it
+                # in place instead of posting another reply.
+                if standup_id and not is_edit:
+                    try:
+                        reply_ts = (response or {}).get("ts") or ""
+                        if reply_ts:
+                            _db.set_standup_message(session.team_id, standup_id, channel, reply_ts)
+                    except Exception as e:
+                        logger.warning("Could not record standup message ts for %s: %s", user_id, e)
+
+            if edited_in_place:
+                logger.info("Updated standup message in place for %s in %s", user_id, channel)
+            else:
+                logger.info(
+                    "Posted %s for %s to %s (thread)",
+                    "standup update" if is_edit else "standup",
+                    user_id,
+                    channel,
+                )
         except Exception as exc:
             logger.error("Failed to post standup for %s: %s", user_id, exc)
             client.chat_postMessage(

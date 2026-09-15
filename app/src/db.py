@@ -760,6 +760,18 @@ def unskip_today(team_id: str, user_id: str) -> None:
             cur.execute(sql, (team_id, user_id))
 
 
+def set_standup_message(team_id: str, standup_id: int, channel_id: str, message_ts: str) -> None:
+    """Record the Slack message that carries a standup so edits update it in place."""
+    sql = """
+        UPDATE standups
+        SET message_channel=%s, message_ts=%s
+        WHERE id=%s AND team_id=%s
+    """
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (channel_id, message_ts, standup_id, team_id))
+
+
 def set_vacation(team_id: str, user_id: str, on_vacation: bool) -> None:
     """Mark a member as on vacation (or back from vacation)."""
     sql = """
