@@ -612,7 +612,9 @@ def _pending_schedule_participants(team_id: str, schedule_id: int) -> tuple[dict
             return None, []
         submitted = {
             row.get("user_id")
-            for row in db.get_standups_today_for_schedule(team_id, schedule_id)
+            for row in db.get_standups_today_for_schedule(
+                team_id, schedule_id, schedule.get("schedule_tz") or "UTC"
+            )
             if row.get("user_id")
         }
         pending = []

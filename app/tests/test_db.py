@@ -204,6 +204,15 @@ class TestSkipHelpers:
         assert "message_channel" in sql and "message_ts" in sql
         cur.execute.assert_called_once_with(sql, ("C1", "111.222", 42, "T1"))
 
+    def test_schedule_submissions_filter_by_schedule_local_day(self):
+        pool, conn, cur = _mock_pool(fetchall_result=[])
+        with patch.object(db, "_pool", pool):
+            db.get_standups_today_for_schedule("T1", 7, "America/Guatemala")
+        sql, params = cur.execute.call_args.args
+        assert "submitted_at AT TIME ZONE %s" in sql
+        assert "CURRENT_DATE" not in sql
+        assert params == ("T1", 7, "America/Guatemala", "America/Guatemala")
+
 
 # ---------------------------------------------------------------------------
 # get_member_role

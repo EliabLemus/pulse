@@ -1325,15 +1325,22 @@ def get_standup_schedules(team_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_standups_today_for_schedule(team_id: str, schedule_id: int) -> list[dict]:
-    """Return today's submissions attributed to one standup schedule."""
+def get_standups_today_for_schedule(team_id: str, schedule_id: int, schedule_tz: str = "UTC") -> list[dict]:
+    """Return one schedule's submissions for its local calendar day.
+
+    ``standup_date`` is a database ``CURRENT_DATE`` value (UTC in the deployed
+    container), which can label an evening Guatemala submission as tomorrow.
+    Use the actual submission instant in the schedule's own timezone instead.
+    """
     sql = """
         SELECT * FROM standups
-        WHERE team_id = %s AND schedule_id = %s AND standup_date = CURRENT_DATE
+        WHERE team_id = %s
+          AND schedule_id = %s
+          AND (submitted_at AT TIME ZONE %s)::date = (NOW() AT TIME ZONE %s)::date
     """
     with db_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(sql, (team_id, schedule_id))
+            cur.execute(sql, (team_id, schedule_id, schedule_tz, schedule_tz))
             return [dict(row) for row in cur.fetchall()]
 
 

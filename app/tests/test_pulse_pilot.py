@@ -76,6 +76,7 @@ def test_pending_reminders_only_dm_users_without_a_submission():
     ):
         sched_mod.send_pending_reminders("T1", "xoxb-test", 7)
 
+    db.get_standups_today_for_schedule.assert_called_once_with("T1", 7, "America/Guatemala")
     client.conversations_open.assert_not_called()
 
 
