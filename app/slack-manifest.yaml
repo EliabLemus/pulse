@@ -1,12 +1,12 @@
 display_information:
-  name: Morgenruf
+  name: Pulse
   description: "🌅 Self-hosted daily standup bot — structured updates, per-project tracking, blocker detection."
   background_color: "#0d1117"
   long_description: |
-    Morgenruf (German: "morning call") is an open-source Slack standup bot that replaces 
+    Pulse is a self-hosted Slack standup bot that replaces
     expensive SaaS tools like Geekbot or Standup & Prosper — for free.
 
-    Every day at your configured time, Morgenruf DMs each team member with 3 questions:
+    Every day at your configured time, Pulse DMs each team member with 3 questions:
     ✅ What did you complete yesterday?
     �� What are you working on today?
     🚧 Any blockers?
@@ -30,7 +30,7 @@ features:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
   bot_user:
-    display_name: Morgenruf
+    display_name: Pulse
     always_online: true
   shortcuts:
     - name: Submit standup

@@ -27,7 +27,7 @@ class UserSession:
     cache_key: str  # "team_id:user_id"
     team_id: str
     channel: str  # target channel for the summary post
-    step: int = 0  # 0=sent q1, 1=sent q2, 2=sent q3, 3=mood, 4=done
+    step: int = 0  # retained for legacy sessions; single-form submission completes directly
     answers: list[str] = field(default_factory=list)
     started_at: datetime = field(default_factory=datetime.utcnow)
     questions: list[str] = field(default_factory=lambda: list(QUESTIONS))
@@ -119,6 +119,23 @@ class StateStore:
             session = _deserialize(data)
             session.answers.append(answer)
             session.step += 1
+            session_store.set_session(cache_key, _serialize(session))
+            return session
+
+    def replace_answers(self, cache_key: str, answers: list[str]) -> Optional[UserSession]:
+        """Replace a session's answers atomically when a full modal is submitted.
+
+        A session can predate the single-form rollout and hold partial answers
+        from the retired step-by-step flow. Replacing rather than appending
+        ensures the submitted form remains the source of truth.
+        """
+        with self._lock:
+            data = session_store.get_session(cache_key)
+            if not data:
+                return None
+            session = _deserialize(data)
+            session.answers = list(answers)
+            session.step = len(session.answers)
             session_store.set_session(cache_key, _serialize(session))
             return session
 

@@ -1,0 +1,78 @@
+name: pulse-techops
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: ${PULSE_DB_PASSWORD:?set PULSE_DB_PASSWORD in .env.techops}
+      POSTGRES_DB: pulse
+    volumes:
+      - pulse-techops-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  migrate:
+    build:
+      context: ../app
+    image: pulse-techops:local
+    command: ["python", "src/migrate.py"]
+    environment: &pulse_environment
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env.techops}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:?set SLACK_BOT_TOKEN in .env.techops}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:?set SLACK_SIGNING_SECRET in .env.techops}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY in .env.techops}
+      APP_URL: ${APP_URL:?set APP_URL in .env.techops}
+      PORT: "3000"
+      PULSE_TEAM_ID: ${PULSE_TEAM_ID:?set PULSE_TEAM_ID in .env.techops}
+      PULSE_TEAM_NAME: ${PULSE_TEAM_NAME:?set PULSE_TEAM_NAME in .env.techops}
+      PULSE_BOT_USER_ID: ${PULSE_BOT_USER_ID:?set PULSE_BOT_USER_ID in .env.techops}
+      PULSE_APP_ID: ${PULSE_APP_ID:?set PULSE_APP_ID in .env.techops}
+      PULSE_PARTICIPANT_ID: ${PULSE_PARTICIPANT_ID:?set PULSE_PARTICIPANT_ID in .env.techops}
+      PULSE_PARTICIPANT_NAME: ${PULSE_PARTICIPANT_NAME:-Eliab}
+      PULSE_CHANNEL_ID: ${PULSE_CHANNEL_ID:?set PULSE_CHANNEL_ID in .env.techops}
+      PULSE_MANAGER_ID: ${PULSE_MANAGER_ID:?set PULSE_MANAGER_ID in .env.techops}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: pulse-techops:local
+    build:
+      context: ../app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PULSE_PORT:-3015}:3000"
+    environment: *pulse_environment
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  seed:
+    image: pulse-techops:local
+    profiles: ["tools"]
+    command: ["python", "/deploy/seed-techops-pilot.py"]
+    environment: *pulse_environment
+    volumes:
+      - ./:/deploy:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pulse-techops-postgres:
+    name: pulse-techops-postgres

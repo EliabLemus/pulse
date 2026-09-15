@@ -1,4 +1,5 @@
 .env
+.env.techops
 teams.yaml
 __pycache__/
 *.pyc
@@ -13,3 +14,6 @@ dist/
 app/helm/morgenruf/charts/
 morgenruf-prod-values.yaml
 .superpowers/
+# Local Slack verification tools read credentials from deploy/.env.techops.
+deploy/check_scopes.py
+deploy/live_start_test.py

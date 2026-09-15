@@ -169,28 +169,35 @@ def _next_run_text(schedule: dict) -> str:
 _DEFAULT_LABELS = ["✅ Yesterday", "🎯 Today", "🚧 Blockers"]
 
 
+_MESES = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
 def _format_standup(
     user_id: str, answers: list[str], mood: str | None = None, questions: list[str] | None = None
 ) -> str:
     """Format collected answers into a structured standup post."""
     import blocks as _blocks  # noqa: PLC0415
 
-    date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
+    now = datetime.now(timezone.utc)
+    date_str = f"{now.day} de {_MESES[now.month - 1]} de {now.year}"
 
     labels = questions or _DEFAULT_LABELS
-    parts = [f"📋 *Standup from <@{user_id}>* — {date_str}\n"]
+    parts = [f"*Avances de <@{user_id}>* - {date_str}\n"]
     for i, label in enumerate(labels):
         raw = answers[i] if i < len(answers) else "—"
         # Detect "no blockers" only for the last default question
         if not questions and i == 2 and raw.strip().lower() in ("none", "no", "nope", "-", "n/a", ""):
-            formatted_answer = "_None_ ✅"
+            formatted_answer = "_None_"
         else:
             formatted_answer = _blocks.linkify_issues(raw) if raw != "—" else raw
-        parts.append(f"*{label}:*\n{formatted_answer}")
+        parts.append(f"*{label}*\n{formatted_answer}")
 
     text = "\n\n".join(parts)
     if mood:
-        text += f"\n\n*🎭 Mood:* {mood}"
+        text += f"\n\n*Mood:* {mood}"
     return text
 
 
@@ -304,6 +311,13 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
     resolved_schedule_id: int | None = schedule_id
     try:
         import db  # noqa: PLC0415
+
+        # A deliberate manual start reverses an accidental "skip today":
+        # without this, the persisted skip would keep suppressing reminders.
+        try:
+            db.unskip_today(team_id, user_id)
+        except Exception as e:
+            logger.warning("Could not clear skip for %s: %s", cache_key, e)
 
         sched = None
         if schedule_id is not None:
@@ -441,6 +455,14 @@ def _complete_standup(user_id: str, session, client) -> None:
                 logger.warning("Unexpected error in _complete_standup fetching schedule config: %s", e)
 
             notify_on_report = sched_config.get("notify_on_report", True)
+            try:
+                from blockers import has_blockers  # noqa: PLC0415
+
+                missing_mention = (sched_config.get("missing_mention") or "").strip()
+                if missing_mention and has_blockers(session.questions, question_answers):
+                    formatted = f"{formatted}\n\n<@{missing_mention}> — bloqueo reportado por <@{user_id}>"
+            except Exception as e:
+                logger.warning("Unexpected error in _complete_standup checking blockers: %s", e)
             if not notify_on_report:
                 # Replace Slack mention with plain display name to avoid notifying the user
                 member_name = user_id
@@ -479,10 +501,10 @@ def _complete_standup(user_id: str, session, client) -> None:
             if not parent_ts:
                 # Create parent message for today's thread — polished like competitors
                 standup_name = sched_config.get("name") or session.standup_name or "Team Standup"
-                display_date = now_utc.strftime("%a, %b %d.")
+                display_date = f"{now_utc.day} de {_MESES[now_utc.month - 1]}"
                 parent = client.chat_postMessage(
                     channel=channel,
-                    text=f"✨ {standup_name} Completed - {display_date} ✨",
+                    text=f"*{standup_name}* — {display_date}",
                 )
                 parent_ts = parent["ts"]
                 try:
@@ -492,22 +514,52 @@ def _complete_standup(user_id: str, session, client) -> None:
 
             _daily_thread_cache[thread_key] = parent_ts
 
-            # Mark edits so teammates can tell which message is the latest version;
-            # we don't have the original reply's ts to update in place, so post
-            # the updated version as a new thread reply with a clear indicator.
+            # Mark edits so teammates can tell which message is the latest
+            # version when we cannot update the original in place.
             channel_text = f"✏️ *Updated standup*\n{formatted}" if is_edit else formatted
-            client.chat_postMessage(
-                channel=channel,
-                text=channel_text,
-                thread_ts=parent_ts,
-                unfurl_links=False,
-            )
-            logger.info(
-                "Posted %s for %s to %s (thread)",
-                "standup update" if is_edit else "standup",
-                user_id,
-                channel,
-            )
+
+            # Prefer updating the original message in place on edits; only
+            # fall back to a new thread reply when there is no stored pointer
+            # (submissions before this existed) or the update fails (e.g. the
+            # original message was deleted).
+            edited_in_place = False
+            if is_edit:
+                try:
+                    orig = _db.get_standup_by_id(int(session.editing_standup_id or 0)) or {}
+                    orig_ts = orig.get("message_ts") or ""
+                    orig_channel = orig.get("message_channel") or ""
+                    if orig_ts and orig_channel:
+                        client.chat_update(channel=orig_channel, ts=orig_ts, text=formatted)
+                        edited_in_place = True
+                except Exception as e:
+                    logger.warning("Could not update original standup message for %s: %s", user_id, e)
+
+            if not edited_in_place:
+                response = client.chat_postMessage(
+                    channel=channel,
+                    text=channel_text,
+                    thread_ts=parent_ts,
+                    unfurl_links=False,
+                )
+                # Remember where this standup lives so future edits update it
+                # in place instead of posting another reply.
+                if standup_id and not is_edit:
+                    try:
+                        reply_ts = (response or {}).get("ts") or ""
+                        if reply_ts:
+                            _db.set_standup_message(session.team_id, standup_id, channel, reply_ts)
+                    except Exception as e:
+                        logger.warning("Could not record standup message ts for %s: %s", user_id, e)
+
+            if edited_in_place:
+                logger.info("Updated standup message in place for %s in %s", user_id, channel)
+            else:
+                logger.info(
+                    "Posted %s for %s to %s (thread)",
+                    "standup update" if is_edit else "standup",
+                    user_id,
+                    channel,
+                )
         except Exception as exc:
             logger.error("Failed to post standup for %s: %s", user_id, exc)
             client.chat_postMessage(
@@ -563,19 +615,15 @@ def _complete_standup(user_id: str, session, client) -> None:
     try:
         from workflow import evaluate_rules  # noqa: PLC0415
 
-        # Check last answer for blockers (convention: last question is usually blockers)
-        blocker_text = question_answers[-1] if question_answers else ""
-        has_blockers = bool(blocker_text.strip()) and blocker_text.strip().lower() not in (
-            "none",
-            "no",
-            "nope",
-            "-",
-            "n/a",
-        )
+        # Use the schedule's actual blocker question and shared no-blocker normalization.
+        from blockers import find_blocker_answer, has_blockers  # noqa: PLC0415
+
+        blocker_text = find_blocker_answer(session.questions, question_answers) or ""
+        blocker_detected = has_blockers(session.questions, question_answers)
         evaluate_rules(
             session.team_id,
             "blocker_detected",
-            {"has_blockers": has_blockers, "blockers": blocker_text, "team": session.team_id},
+            {"has_blockers": blocker_detected, "blockers": blocker_text, "team": session.team_id},
             client,
         )
         evaluate_rules(session.team_id, "standup_complete", {"team": session.team_id}, client)
@@ -758,6 +806,38 @@ def can_edit_response(team_id: str, user_id: str, standup_id: int) -> bool:
         return False
 
 
+def _handle_slack_dm_event(event, body, client, logger) -> None:  # noqa: ANN001
+    """Route a Slack Events API DM using its outer workspace identifier."""
+    _handle_dm_message(event, client, logger, team_id=body.get("team_id"))
+
+
+def _handle_dm_message(event, client, logger, *, team_id: str | None = None) -> None:  # noqa: ANN001
+    """Collect an active standup answer or start one from a manual DM.
+
+    Slack Bolt dispatches the broad ``event("message")`` listener before its
+    narrower ``message("standup")`` listener. Keep both paths in this single
+    listener so a manual DM is not acknowledged and then silently dropped.
+    """
+    if event.get("channel_type") != "im" or event.get("subtype"):
+        return
+
+    user_id: str = event["user"]
+    resolved_team_id = team_id or event.get("team", "")
+    text: str = event.get("text", "").strip()
+    cache_key = f"{resolved_team_id}:{user_id}"
+
+    session = state_store.get(cache_key)
+    if not session:
+        if text.casefold() == "standup":
+            _start_standup_session(user_id, resolved_team_id, client)
+        return
+
+    client.chat_postMessage(
+        channel=user_id,
+        text="Usa el botón *Completar update* del mensaje de Pulse para enviar las tres respuestas en un solo formulario.",
+    )
+
+
 def register_handlers(app: App) -> None:
     """Register all Slack event handlers."""
 
@@ -801,40 +881,9 @@ def register_handlers(app: App) -> None:
             logger.warning("app_uninstalled: no installation found for team %s", team_id)
 
     @app.event("message")
-    def handle_dm(event, say, client, logger):  # noqa: ANN001
-        """Handle incoming DMs — collect standup answers step by step."""
-        if event.get("channel_type") != "im":
-            return
-        if event.get("subtype"):
-            return
-
-        user_id: str = event["user"]
-        team_id: str = event.get("team", "")
-        text: str = event.get("text", "").strip()
-        cache_key = f"{team_id}:{user_id}"
-
-        session = state_store.get(cache_key)
-        if not session:
-            return
-
-        session = state_store.record_answer(cache_key, text)
-        n_questions = len(session.questions)
-
-        if session.step < n_questions:
-            # Still collecting question answers — send next question as Block Kit
-            _send_question_block(
-                client,
-                user_id,
-                session.questions[session.step],
-                session.step,
-                _initial_answer_for(session, session.step),
-            )
-        elif session.step == n_questions:
-            # All questions answered — ask mood
-            _send_mood_block(client, user_id)
-        else:
-            # Mood answered — finalize
-            _complete_standup(user_id, session, client)
+    def handle_dm(event, say, client, logger, body):  # noqa: ANN001
+        """Handle incoming DMs — collect answers or start a manual standup."""
+        _handle_slack_dm_event(event, body, client, logger)
 
     @app.event("app_home_opened")
     def handle_app_home(event, client, body=None):  # noqa: ANN001
@@ -991,7 +1040,35 @@ def register_handlers(app: App) -> None:
             logger.warning("skip_standup button error: %s", e)
         cache_key = f"{team_id}:{user_id}"
         state_store.clear(cache_key)
-        client.chat_postMessage(channel=user_id, text="✅ Got it! You've skipped today's standup. See you tomorrow! 👋")
+        import blocks as _blocks  # noqa: PLC0415
+
+        client.chat_postMessage(channel=user_id, blocks=_blocks.standup_resume_message()["blocks"])
+
+    @app.action("resume_standup")
+    def handle_resume_standup(ack, body, client):  # noqa: ANN001
+        """Recover from an accidental skip: unskip and open the same form."""
+        ack()
+        user_id: str = body["user"]["id"]
+        team_id: str = body["team"]["id"]
+        try:
+            import db  # noqa: PLC0415
+
+            db.unskip_today(team_id, user_id)
+        except Exception as e:
+            logger.warning("resume_standup unskip error: %s", e)
+        _start_standup_session(user_id, team_id, client)
+        session = state_store.get(f"{team_id}:{user_id}")
+        if not session:
+            client.chat_postMessage(
+                channel=user_id,
+                text="⚠️ No pude iniciar tu update. Escribe `standup` para intentar de nuevo.",
+            )
+            return
+        import blocks as _blocks  # noqa: PLC0415
+
+        modal = _blocks.standup_form_modal(session.questions, session.standup_name or "Standup")
+        modal["private_metadata"] = f"{team_id}:{user_id}"
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
 
     @app.action("fill_in_form")
     def handle_fill_in_form(ack, body, client):  # noqa: ANN001
@@ -1339,7 +1416,7 @@ def register_handlers(app: App) -> None:
     @app.event("app_mention")
     def handle_mention(event, say):  # noqa: ANN001
         say(
-            "👋 I'm Morgenruf, your standup bot! Use `/help` to see available commands or check your *App Home* tab for settings and history."
+            "👋 I'm Pulse, your standup bot! Use `/help` to see available commands or check your *App Home* tab for settings and history."
         )
 
     @app.event("member_joined_channel")
@@ -1369,7 +1446,7 @@ def register_handlers(app: App) -> None:
             client.chat_postMessage(
                 channel=user_id,
                 text=(
-                    "👋 Welcome to the team! I'm Morgenruf, your daily standup bot.\n\n"
+                    "👋 Welcome to the team! I'm Pulse, your daily standup bot.\n\n"
                     "I'll DM you each morning with a few quick questions to share with your team. "
                     "Use `/standup` to try a standup now, or `/help` to learn more."
                 ),
@@ -1392,15 +1469,6 @@ def register_handlers(app: App) -> None:
             "• `kudos @teammate Great job!` — recognise a teammate 🏆\n"
             "• `help` — show this message"
         )
-
-    @app.message("standup")
-    def handle_manual_standup(message, say, client):  # noqa: ANN001
-        """Allow team members to trigger their own standup manually."""
-        if message.get("channel_type") != "im":
-            return
-        user_id: str = message["user"]
-        team_id: str = message.get("team", "")
-        _start_standup_session(user_id, team_id, client)
 
     @app.action(re.compile(r"submit_answer_\d+"))
     def handle_submit_answer(ack, body, client):  # noqa: ANN001
@@ -1450,10 +1518,8 @@ def register_handlers(app: App) -> None:
                 session.step,
                 _initial_answer_for(session, session.step),
             )
-        elif session.step == n_questions:
-            # All main questions answered — ask mood
-            _send_mood_block(client, user_id)
-        # else: mood comes via button click or plain-text DM fallback
+        else:
+            _complete_standup(user_id, session, client)
 
     # Backwards-compat: older messages still in user DMs use the old action_id
     # via dispatch_action. Accept those events so they don't 404 against Bolt.
@@ -1462,20 +1528,13 @@ def register_handlers(app: App) -> None:
         ack()
 
     @app.action(re.compile(r"mood_(great|okay|rough)"))
-    def handle_mood_button(ack, body, client):  # noqa: ANN001
-        """Handle mood button click to finalize standup."""
+    def handle_legacy_mood_button(ack, body, client):  # noqa: ANN001
+        """Acknowledge stale mood buttons without recording more mood data."""
         ack()
-        user_id: str = body["user"]["id"]
-        team_id: str = body["team"]["id"]
-        mood: str = body["actions"][0].get("value", "")
-
-        cache_key = f"{team_id}:{user_id}"
-        session = state_store.get(cache_key)
-        if not session:
-            return
-
-        session = state_store.record_answer(cache_key, mood)
-        _complete_standup(user_id, session, client)
+        client.chat_postMessage(
+            channel=body["user"]["id"],
+            text="Este flujo ya no captura mood. Usa *Completar update* en el mensaje más reciente de Pulse.",
+        )
 
     @app.command("/standup")
     def handle_standup_command(ack, body, client):  # noqa: ANN001
@@ -1508,9 +1567,9 @@ def register_handlers(app: App) -> None:
         user_id: str = body["user_id"]
         client.chat_postMessage(
             channel=user_id,
-            text="Morgenruf Help",
+            text="Pulse Help",
             blocks=[
-                {"type": "header", "text": {"type": "plain_text", "text": "🌅 Morgenruf — Commands"}},
+                {"type": "header", "text": {"type": "plain_text", "text": "🌅 Pulse — Commands"}},
                 {
                     "type": "section",
                     "text": {
@@ -1524,7 +1583,7 @@ def register_handlers(app: App) -> None:
                             "*Other ways to interact:*\n"
                             "• Reply to a standup DM at any time to start\n"
                             "• Use the *App Home* tab to see your history and settings\n"
-                            "• Mention `@Morgenruf` in any channel for help\n\n"
+                            "• Mention `@Pulse` in any channel for help\n\n"
                             "📖 Full docs: <https://docs.morgenruf.dev|docs.morgenruf.dev>"
                         ),
                     },
@@ -1742,17 +1801,25 @@ def register_handlers(app: App) -> None:
         # Collect answers from all question fields (rich_text_input)
         import blocks as _blocks  # noqa: PLC0415
 
+        answers: list[str] = []
         for i in range(len(session.questions)):
             block_id = f"question_{i}"
             action_id = f"answer_{i}"
             field = values.get(block_id, {}).get(action_id, {})
             # rich_text_input → rich_text_value; fallback to plain value
             rt = field.get("rich_text_value")
-            answer = _blocks.rich_text_to_mrkdwn(rt) if rt else field.get("value", "")
-            session = state_store.record_answer(cache_key, answer)
+            answers.append(_blocks.rich_text_to_mrkdwn(rt) if rt else field.get("value", ""))
 
-        # Ask mood after form submission
-        _send_mood_block(client, user_id)
+        session = state_store.replace_answers(cache_key, answers)
+        if not session:
+            client.chat_postMessage(
+                channel=user_id,
+                text="⚠️ Tu sesión expiró. Escribe `standup` para iniciar una nueva.",
+            )
+            return
+
+        # A single submitted form is the complete standup; do not collect mood.
+        _complete_standup(user_id, session, client)
 
     @app.action("standup_edit")
     def handle_standup_edit(ack, body, say, client):  # noqa: ANN001
@@ -1832,11 +1899,17 @@ def register_handlers(app: App) -> None:
             editing_standup_id=standup_id,
             edit_initial_answers=initial_answers,
         )
-        client.chat_postMessage(
-            channel=user_id,
-            text="✏️ Let's update your standup — your previous answers are pre-filled, edit what you need.",
+        # Open the SAME single form, pre-filled with the previous answers,
+        # instead of the legacy step-by-step question flow.
+        import blocks as _blocks  # noqa: PLC0415
+
+        modal = _blocks.standup_form_modal(
+            session.questions,
+            session.standup_name or "Standup",
+            previous_answers=initial_answers,
         )
-        _send_question_block(client, user_id, session.questions[0], 0, _initial_answer_for(session, 0))
+        modal["private_metadata"] = cache_key
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
 
     @app.message("skip")
     def handle_skip(message, say):  # noqa: ANN001
@@ -1854,7 +1927,9 @@ def register_handlers(app: App) -> None:
         # Also clear any active session
         cache_key = f"{team_id}:{user_id}"
         state_store.clear(cache_key)
-        say("✅ Got it! You've skipped today's standup. See you tomorrow! 👋")
+        import blocks as _blocks  # noqa: PLC0415
+
+        say(blocks=_blocks.standup_resume_message()["blocks"])
 
     @app.message(re.compile(r"i'?m back(?: from vacation)?|back from vacation|im back", re.IGNORECASE))
     def handle_back_from_vacation(message, say):  # noqa: ANN001

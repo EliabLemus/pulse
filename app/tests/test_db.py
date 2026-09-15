@@ -186,6 +186,33 @@ class TestSkipHelpers:
             db.skip_today("T1", "U1")
         cur.execute.assert_called()
 
+    def test_unskip_today_executes_delete(self):
+        pool, conn, cur = _mock_pool()
+        with patch.object(db, "_pool", pool):
+            db.unskip_today("T1", "U1")
+        sql = cur.execute.call_args.args[0]
+        assert "DELETE FROM user_skip" in sql
+        assert "CURRENT_DATE" in sql
+        cur.execute.assert_called_once_with(sql, ("T1", "U1"))
+
+    def test_set_standup_message_updates_row(self):
+        pool, conn, cur = _mock_pool()
+        with patch.object(db, "_pool", pool):
+            db.set_standup_message("T1", 42, "C1", "111.222")
+        sql = cur.execute.call_args.args[0]
+        assert "UPDATE standups" in sql
+        assert "message_channel" in sql and "message_ts" in sql
+        cur.execute.assert_called_once_with(sql, ("C1", "111.222", 42, "T1"))
+
+    def test_schedule_submissions_filter_by_schedule_local_day(self):
+        pool, conn, cur = _mock_pool(fetchall_result=[])
+        with patch.object(db, "_pool", pool):
+            db.get_standups_today_for_schedule("T1", 7, "America/Guatemala")
+        sql, params = cur.execute.call_args.args
+        assert "submitted_at AT TIME ZONE %s" in sql
+        assert "CURRENT_DATE" not in sql
+        assert params == ("T1", 7, "America/Guatemala", "America/Guatemala")
+
 
 # ---------------------------------------------------------------------------
 # get_member_role
