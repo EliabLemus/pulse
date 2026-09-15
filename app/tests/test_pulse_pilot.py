@@ -93,8 +93,10 @@ def test_pending_reminders_dm_only_the_remaining_participant():
 
     assert [call.kwargs["users"] for call in client.conversations_open.call_args_list] == ["U1", "U3"]
     texts = [call.kwargs["text"] for call in client.chat_postMessage.call_args_list]
-    assert all("falta tu update" in text for text in texts)
-    assert all("Pulse Daily" in text for text in texts)
+    assert texts == [
+        "Recordatorio: falta tu update para *Pulse Daily*. Responde por aquí.",
+        "Recordatorio: falta tu update para *Pulse Daily*. Responde por aquí.",
+    ]
 
 
 def test_window_close_posts_nothing_when_everyone_is_exempt_or_submitted():

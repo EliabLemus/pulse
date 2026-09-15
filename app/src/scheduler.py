@@ -645,7 +645,7 @@ def send_pending_reminders(team_id: str, bot_token: str, schedule_id: int) -> No
                 client,
                 user_id,
                 team_id=team_id,
-                text=f"⏰ Recordatorio: falta tu update para *{label}*. Responde por aquí 🙏",
+                text=f"Recordatorio: falta tu update para *{label}*. Responde por aquí.",
             )
         except Exception as exc:
             logger.warning("Failed pending reminder DM to %s / %s: %s", team_id, user_id, exc)
