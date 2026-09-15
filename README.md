@@ -1,8 +1,36 @@
 # Pulse
 
-> Private fork of the open-source [Morgenruf](https://github.com/morgenruf/morgenruf) project (MIT), with improvements for the TechOps daily standup workflow.
+> Private fork of the open-source [Morgenruf](https://github.com/morgenruf/morgenruf) project (MIT), adapted for the TechOps daily-update workflow.
 
-Pulse retains Morgenruf’s self-hosted Slack standup foundation and adds a defined response window, follow-up reminders, and a channel notice for missing updates.
+Pulse collects a daily update in one Slack modal and posts it automatically to the team channel. It is self-hosted: Slack callbacks reach the app over HTTPS, while standup data lives in PostgreSQL.
+
+## Pulse TechOps workflow
+
+1. At the configured time, Pulse sends each member a DM with **Completar mi update**.
+2. The button opens one Spanish-language modal with exactly three questions:
+   - ¿Qué lograste avanzar o completar ayer?
+   - ¿Cuál es tu tarea principal para hoy?
+   - ¿Tienes algún bloqueo que te impida avanzar hoy?
+3. On submission, Pulse posts the update in the configured team-channel daily thread. There is no mood capture and nobody copies/pastes a template.
+4. **Omitir hoy** is reversible: the confirmation includes **Completar mi update**, and typing `standup` also clears the same-day skip.
+5. **Edit responses** reopens the same prefilled form. New submissions store their Slack message pointer, so editing updates the original thread reply in place instead of posting a duplicate. Records made before message pointers existed fall back safely to a marked thread reply.
+
+The published format is deliberately plain and team-readable:
+
+```text
+Avances de @usuario - 15 de septiembre de 2026
+
+¿Qué lograste avanzar o completar ayer?
+• …
+
+¿Cuál es tu tarea principal para hoy?
+• …
+
+¿Tienes algún bloqueo que te impida avanzar hoy?
+Sin bloqueos
+```
+
+For public target channels such as `#techops-automation`, `chat:write.public` lets Pulse post without joining the channel. Pulse deliberately does **not** request `channels:join`, so it cannot add itself to any channel. Private channels still require an explicit invitation from a channel member.
 
 [![Release](https://img.shields.io/github/v/release/morgenruf/morgenruf?label=latest&color=brightgreen)](https://github.com/morgenruf/morgenruf/releases)
 [![Tests](https://github.com/morgenruf/morgenruf/actions/workflows/test.yml/badge.svg)](https://github.com/morgenruf/morgenruf/actions/workflows/test.yml)
@@ -203,33 +231,11 @@ Morgenruf supports Google Chat via the Chat REST API and a service account.
 
 ---
 
-## Standup Format
+## Standup format
 
-The bot DMs each member 4 questions:
+Pulse’s TechOps workflow uses the single Spanish form and clean channel format shown above. The three questions are schedule-configured rather than hardcoded, but the pilot uses those exact questions. Mood collection is disabled for this workflow.
 
-```
-✅ What did you complete yesterday?
-🎯 What are you working on today?
-🚧 Any blockers?
-🎭 How are you feeling today? (😊 Great / 😐 Okay / 😔 Struggling)
-```
-
-Then posts a formatted summary to the configured channel:
-
-```
-📋 Standup — Alice  |  April 5, 2026
-
-✅ Yesterday
-  Deployed Terraform module, PR #42 merged
-
-🎯 Today
-  Load balancer configuration
-
-🚧 Blockers
-  Waiting on AWS quota approval
-
-🎭 Mood: 😊
-```
+The upstream Morgenruf project retains broader configuration options (multiple schedules, dashboard, analytics, webhooks, Google Chat, and optional integrations). This fork’s pilot behavior is documented in [Pulse TechOps workflow](#pulse-techops-workflow).
 
 ---
 
