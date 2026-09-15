@@ -766,6 +766,44 @@ def can_edit_response(team_id: str, user_id: str, standup_id: int) -> bool:
         return False
 
 
+def _handle_dm_message(event, client, logger) -> None:  # noqa: ANN001
+    """Collect an active standup answer or start one from a manual DM.
+
+    Slack Bolt dispatches the broad ``event("message")`` listener before its
+    narrower ``message("standup")`` listener. Keep both paths in this single
+    listener so a manual DM is not acknowledged and then silently dropped.
+    """
+    if event.get("channel_type") != "im" or event.get("subtype"):
+        return
+
+    user_id: str = event["user"]
+    team_id: str = event.get("team", "")
+    text: str = event.get("text", "").strip()
+    cache_key = f"{team_id}:{user_id}"
+
+    session = state_store.get(cache_key)
+    if not session:
+        if text.casefold() == "standup":
+            _start_standup_session(user_id, team_id, client)
+        return
+
+    session = state_store.record_answer(cache_key, text)
+    n_questions = len(session.questions)
+
+    if session.step < n_questions:
+        _send_question_block(
+            client,
+            user_id,
+            session.questions[session.step],
+            session.step,
+            _initial_answer_for(session, session.step),
+        )
+    elif session.step == n_questions:
+        _send_mood_block(client, user_id)
+    else:
+        _complete_standup(user_id, session, client)
+
+
 def register_handlers(app: App) -> None:
     """Register all Slack event handlers."""
 
@@ -810,39 +848,8 @@ def register_handlers(app: App) -> None:
 
     @app.event("message")
     def handle_dm(event, say, client, logger):  # noqa: ANN001
-        """Handle incoming DMs — collect standup answers step by step."""
-        if event.get("channel_type") != "im":
-            return
-        if event.get("subtype"):
-            return
-
-        user_id: str = event["user"]
-        team_id: str = event.get("team", "")
-        text: str = event.get("text", "").strip()
-        cache_key = f"{team_id}:{user_id}"
-
-        session = state_store.get(cache_key)
-        if not session:
-            return
-
-        session = state_store.record_answer(cache_key, text)
-        n_questions = len(session.questions)
-
-        if session.step < n_questions:
-            # Still collecting question answers — send next question as Block Kit
-            _send_question_block(
-                client,
-                user_id,
-                session.questions[session.step],
-                session.step,
-                _initial_answer_for(session, session.step),
-            )
-        elif session.step == n_questions:
-            # All questions answered — ask mood
-            _send_mood_block(client, user_id)
-        else:
-            # Mood answered — finalize
-            _complete_standup(user_id, session, client)
+        """Handle incoming DMs — collect answers or start a manual standup."""
+        _handle_dm_message(event, client, logger)
 
     @app.event("app_home_opened")
     def handle_app_home(event, client, body=None):  # noqa: ANN001
@@ -1400,15 +1407,6 @@ def register_handlers(app: App) -> None:
             "• `kudos @teammate Great job!` — recognise a teammate 🏆\n"
             "• `help` — show this message"
         )
-
-    @app.message("standup")
-    def handle_manual_standup(message, say, client):  # noqa: ANN001
-        """Allow team members to trigger their own standup manually."""
-        if message.get("channel_type") != "im":
-            return
-        user_id: str = message["user"]
-        team_id: str = message.get("team", "")
-        _start_standup_session(user_id, team_id, client)
 
     @app.action(re.compile(r"submit_answer_\d+"))
     def handle_submit_answer(ack, body, client):  # noqa: ANN001

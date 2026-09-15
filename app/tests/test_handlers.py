@@ -214,6 +214,59 @@ class TestStartStandupSession:
 
 
 # ---------------------------------------------------------------------------
+# Incoming DM dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestIncomingDMDispatch:
+    def test_manual_standup_starts_a_live_session_when_none_exists(self):
+        """The generic message listener owns manual DM dispatch in Bolt."""
+        import handlers
+
+        client = MagicMock()
+        logger = MagicMock()
+        event = {"channel_type": "im", "user": "U1", "team": "T1", "text": "standup"}
+        with (
+            patch.object(handlers.state_store, "get", return_value=None),
+            patch.object(handlers, "_start_standup_session") as start,
+        ):
+            handlers._handle_dm_message(event, client, logger)
+
+        start.assert_called_once_with("U1", "T1", client)
+
+    def test_active_session_text_advances_instead_of_restarting(self):
+        import handlers
+
+        client = MagicMock()
+        logger = MagicMock()
+        active = MagicMock()
+        active.questions = ["Q1", "Q2"]
+        advanced = MagicMock()
+        advanced.questions = ["Q1", "Q2"]
+        advanced.step = 1
+        event = {"channel_type": "im", "user": "U1", "team": "T1", "text": "answer"}
+        with (
+            patch.object(handlers.state_store, "get", return_value=active),
+            patch.object(handlers.state_store, "record_answer", return_value=advanced) as record_answer,
+            patch.object(handlers, "_send_question_block") as send_question,
+            patch.object(handlers, "_start_standup_session") as start,
+        ):
+            handlers._handle_dm_message(event, client, logger)
+
+        record_answer.assert_called_once_with("T1:U1", "answer")
+        send_question.assert_called_once_with(client, "U1", "Q2", 1, None)
+        start.assert_not_called()
+
+    def test_non_dm_message_is_ignored(self):
+        import handlers
+
+        with patch.object(handlers, "_start_standup_session") as start:
+            handlers._handle_dm_message({"channel_type": "channel", "text": "standup"}, MagicMock(), MagicMock())
+
+        start.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # fire_webhooks
 # ---------------------------------------------------------------------------
 
