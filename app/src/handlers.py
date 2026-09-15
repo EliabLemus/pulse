@@ -178,7 +178,7 @@ def _format_standup(
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
     labels = questions or _DEFAULT_LABELS
-    parts = [f"*Standup de <@{user_id}>* — {date_str}\n"]
+    parts = [f"*Avances de <@{user_id}>* - {date_str}\n"]
     for i, label in enumerate(labels):
         raw = answers[i] if i < len(answers) else "—"
         # Detect "no blockers" only for the last default question

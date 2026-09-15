@@ -95,7 +95,7 @@ class TestFormatStandup:
         result = _format_standup("U1", ["ayer", "hoy", "sin bloqueos"], questions=questions)
         assert "📋" not in result
         assert "✅" not in result
-        assert "*Standup de <@U1>*" in result
+        assert "*Avances de <@U1>* -" in result
 
     def test_mood_included_when_provided(self):
         from handlers import _format_standup
