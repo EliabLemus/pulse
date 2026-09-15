@@ -460,7 +460,7 @@ def _complete_standup(user_id: str, session, client) -> None:
 
                 missing_mention = (sched_config.get("missing_mention") or "").strip()
                 if missing_mention and has_blockers(session.questions, question_answers):
-                    formatted = f"<@{missing_mention}> — bloqueo reportado por <@{user_id}>\n{formatted}"
+                    formatted = f"{formatted}\n\n<@{missing_mention}> — bloqueo reportado por <@{user_id}>"
             except Exception as e:
                 logger.warning("Unexpected error in _complete_standup checking blockers: %s", e)
             if not notify_on_report:

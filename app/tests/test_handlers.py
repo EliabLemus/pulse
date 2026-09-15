@@ -481,6 +481,33 @@ class TestSingleFormEdit:
         )
         assert "✏️" in thread_reply.kwargs["text"]
 
+    def test_blocker_escalation_is_appended_after_the_update(self):
+        import handlers
+
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "555.666"}
+        db_mock = MagicMock()
+        db_mock.save_standup.return_value = 42
+        db_mock.get_standup_schedule_for_channel.return_value = {
+            "channel_id": "C1",
+            "notify_on_report": True,
+            "missing_mention": "UMANAGER",
+        }
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Ayer", "Hoy", "¿Tienes algún bloqueo?"],
+            answers=["avance", "tarea", "Esperando acceso"],
+        )
+        with patch.dict(sys.modules, {"db": db_mock}):
+            handlers._complete_standup("U1", session, client)
+
+        update = next(c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts"))
+        escalation = "<@UMANAGER> — bloqueo reportado por <@U1>"
+        assert update.endswith(escalation)
+        assert update.index("Esperando acceso") < update.index(escalation)
+
     def test_first_post_records_its_message_ts(self):
         import handlers
 
