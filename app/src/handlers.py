@@ -170,8 +170,18 @@ _DEFAULT_LABELS = ["✅ Yesterday", "🎯 Today", "🚧 Blockers"]
 
 
 _MESES = [
-    "enero", "febrero", "marzo", "abril", "mayo", "junio",
-    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
 ]
 
 
@@ -613,10 +623,9 @@ def _complete_standup(user_id: str, session, client) -> None:
     # which fires at report_time regardless of whether all members submitted.
 
     try:
-        from workflow import evaluate_rules  # noqa: PLC0415
-
         # Use the schedule's actual blocker question and shared no-blocker normalization.
         from blockers import find_blocker_answer, has_blockers  # noqa: PLC0415
+        from workflow import evaluate_rules  # noqa: PLC0415
 
         blocker_text = find_blocker_answer(session.questions, question_answers) or ""
         blocker_detected = has_blockers(session.questions, question_answers)

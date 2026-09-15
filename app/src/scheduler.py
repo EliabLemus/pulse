@@ -612,9 +612,7 @@ def _pending_schedule_participants(team_id: str, schedule_id: int) -> tuple[dict
             return None, []
         submitted = {
             row.get("user_id")
-            for row in db.get_standups_today_for_schedule(
-                team_id, schedule_id, schedule.get("schedule_tz") or "UTC"
-            )
+            for row in db.get_standups_today_for_schedule(team_id, schedule_id, schedule.get("schedule_tz") or "UTC")
             if row.get("user_id")
         }
         pending = []
@@ -1130,9 +1128,7 @@ def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> Non
             continue
         scheduler.add_job(
             send_pending_reminders,
-            trigger=CronTrigger(
-                hour=pending_hour, minute=pending_minute, day_of_week=schedule_days, timezone=tz
-            ),
+            trigger=CronTrigger(hour=pending_hour, minute=pending_minute, day_of_week=schedule_days, timezone=tz),
             args=[team_id, bot_token, schedule_id],
             id=f"pending_reminder_{team_id}_{schedule_id}_{pending_hour:02d}{pending_minute:02d}",
             name=f"Pending Reminder — {schedule.get('name', 'Standup')} — {team_id}",

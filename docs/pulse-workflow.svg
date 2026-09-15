@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Pulse — flujo de update diario</title>
+  <desc id="desc">Diagrama del flujo de Pulse: iniciar update, responder u omitir, recordatorios, publicación, bloqueos, edición y cierre de ventana.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#08111f"/><stop offset="1" stop-color="#101a31"/></linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#21304a" stroke-width=".7" opacity=".55"/></pattern>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#020617" flood-opacity=".55"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#94a3b8"/></marker>
+    <style>
+      .title { font: 700 34px Inter, ui-sans-serif, system-ui, sans-serif; fill:#f8fafc }
+      .subtitle { font: 400 16px Inter, ui-sans-serif, system-ui, sans-serif; fill:#a8b7cf }
+      .lane { font: 700 14px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing:1.2px; fill:#dbeafe }
+      .node-title { font: 700 16px Inter, ui-sans-serif, system-ui, sans-serif; fill:#f8fafc }
+      .node-text { font: 400 13px Inter, ui-sans-serif, system-ui, sans-serif; fill:#cbd5e1 }
+      .small { font: 600 12px Inter, ui-sans-serif, system-ui, sans-serif; fill:#cbd5e1 }
+      .label { font: 600 12px Inter, ui-sans-serif, system-ui, sans-serif; fill:#94a3b8 }
+      .line { stroke:#94a3b8; stroke-width:2; fill:none; marker-end:url(#arrow) }
+      .dash { stroke:#94a3b8; stroke-width:2; stroke-dasharray:6 5; fill:none; marker-end:url(#arrow) }
+    </style>
+  </defs>
+  <rect width="1600" height="1120" rx="22" fill="url(#bg)"/>
+  <rect width="1600" height="1120" rx="22" fill="url(#grid)"/>
+
+  <text x="64" y="70" class="title">Pulse — flujo diario de updates</text>
+  <text x="64" y="100" class="subtitle">Piloto TechOps · America/Guatemala · una sola fuente de verdad por persona</text>
+  <rect x="64" y="126" width="1472" height="1" fill="#334155"/>
+
+  <!-- lanes -->
+  <rect x="64" y="160" width="340" height="820" rx="18" fill="#082f49" opacity=".52" stroke="#22d3ee" stroke-opacity=".5"/>
+  <rect x="430" y="160" width="430" height="820" rx="18" fill="#064e3b" opacity=".48" stroke="#34d399" stroke-opacity=".5"/>
+  <rect x="886" y="160" width="650" height="820" rx="18" fill="#4c1d95" opacity=".34" stroke="#a78bfa" stroke-opacity=".5"/>
+  <text x="90" y="196" class="lane">1 · INICIAR Y RESPONDER</text>
+  <text x="456" y="196" class="lane">2 · PUBLICAR</text>
+  <text x="912" y="196" class="lane">3 · SEGUIMIENTO Y CIERRE</text>
+
+  <!-- left nodes -->
+  <g filter="url(#shadow)"><rect x="90" y="222" width="288" height="82" rx="12" fill="#083344" stroke="#22d3ee" stroke-width="1.5"/></g>
+  <text x="112" y="253" class="node-title">Inicio</text><text x="112" y="278" class="node-text">09:15 L–J o DM “standup”</text>
+  <path class="line" d="M234 304V338"/>
+  <g filter="url(#shadow)"><rect x="90" y="340" width="288" height="88" rx="12" fill="#083344" stroke="#22d3ee" stroke-width="1.5"/></g>
+  <text x="112" y="371" class="node-title">DM de Pulse</text><text x="112" y="396" class="node-text">Botón “Completar mi update”</text>
+  <path class="line" d="M234 428V462"/>
+  <g filter="url(#shadow)"><rect x="90" y="464" width="288" height="94" rx="12" fill="#083344" stroke="#22d3ee" stroke-width="1.5"/></g>
+  <text x="112" y="495" class="node-title">Formulario único</text><text x="112" y="520" class="node-text">Ayer · Hoy · Bloqueos</text>
+  <path class="line" d="M378 511H448"/>
+  <text x="387" y="498" class="label">Enviar</text>
+
+  <g filter="url(#shadow)"><rect x="90" y="650" width="288" height="104" rx="12" fill="#3b1d63" stroke="#c084fc" stroke-width="1.5"/></g>
+  <text x="112" y="682" class="node-title">Omitir hoy</text><text x="112" y="707" class="node-text">Sin recordatorios ni mención</text><text x="112" y="728" class="node-text">de ausencia durante ese día</text>
+  <path class="dash" d="M234 558V650"/>
+  <text x="248" y="612" class="label">Omitir</text>
+  <path class="dash" d="M378 702H510V558"/>
+  <text x="400" y="690" class="label">“Completar mi update” o “standup”</text>
+
+  <!-- middle nodes -->
+  <g filter="url(#shadow)"><rect x="456" y="464" width="378" height="94" rx="12" fill="#064e3b" stroke="#34d399" stroke-width="1.5"/></g>
+  <text x="480" y="495" class="node-title">Hilo diario del canal</text><text x="480" y="520" class="node-text">Avances de @usuario — fecha</text>
+  <path class="line" d="M645 558V594"/>
+  <g filter="url(#shadow)"><rect x="456" y="596" width="378" height="108" rx="12" fill="#064e3b" stroke="#34d399" stroke-width="1.5"/></g>
+  <text x="480" y="627" class="node-title">¿Hay un bloqueo?</text><text x="480" y="652" class="node-text">No: el update queda publicado</text><text x="480" y="675" class="node-text">Sí: la mención va al final del update</text>
+  <path class="line" d="M645 704V742"/>
+  <g filter="url(#shadow)"><rect x="456" y="744" width="378" height="112" rx="12" fill="#064e3b" stroke="#34d399" stroke-width="1.5"/></g>
+  <text x="480" y="775" class="node-title">Edit responses · ventana 4 h</text><text x="480" y="800" class="node-text">Reabre el formulario prellenado</text><text x="480" y="823" class="node-text">y actualiza el mensaje original</text>
+
+  <!-- right schedule pathway -->
+  <g filter="url(#shadow)"><rect x="916" y="222" width="270" height="104" rx="12" fill="#3b275d" stroke="#a78bfa" stroke-width="1.5"/></g>
+  <text x="938" y="253" class="node-title">Pendiente</text><text x="938" y="278" class="node-text">Sin update, sin omitir</text><text x="938" y="299" class="node-text">y no vacaciones</text>
+  <path class="dash" d="M378 384H916V274"/>
+  <text x="610" y="372" class="label">Solo si sigue pendiente</text>
+  <path class="line" d="M1051 326V366"/>
+  <g filter="url(#shadow)"><rect x="916" y="368" width="270" height="106" rx="12" fill="#3b275d" stroke="#a78bfa" stroke-width="1.5"/></g>
+  <text x="938" y="399" class="node-title">Recordatorios por DM</text><text x="938" y="424" class="node-text">09:45 · 10:15 · 10:45</text><text x="938" y="445" class="node-text">Sin emojis</text>
+  <path class="dash" d="M916 421H834"/>
+  <text x="850" y="410" class="label">Responder</text>
+
+  <path class="line" d="M1186 274H1280V368"/>
+  <text x="1202" y="262" class="label">11:00</text>
+  <g filter="url(#shadow)"><rect x="1210" y="368" width="292" height="106" rx="12" fill="#4a3411" stroke="#fbbf24" stroke-width="1.5"/></g>
+  <text x="1232" y="399" class="node-title">Cierre de ventana</text><text x="1232" y="424" class="node-text">Canal: “Sin update: @usuario”</text><text x="1232" y="445" class="node-text">Solo pendientes; sin resumen</text>
+
+  <!-- channel policy -->
+  <g filter="url(#shadow)"><rect x="916" y="594" width="586" height="142" rx="12" fill="#18253c" stroke="#94a3b8" stroke-width="1.5"/></g>
+  <text x="940" y="625" class="node-title">Destino del hilo</text>
+  <circle cx="950" cy="660" r="5" fill="#22d3ee"/><text x="968" y="665" class="small">Canal público: chat:write.public publica sin que Pulse se una</text>
+  <circle cx="950" cy="700" r="5" fill="#fbbf24"/><text x="968" y="705" class="small">Canal privado: un miembro debe invitar explícitamente a Pulse</text>
+  <path class="dash" d="M834 511H880V650H916"/>
+
+  <!-- footer -->
+  <rect x="64" y="1010" width="1472" height="62" rx="12" fill="#111c30" stroke="#334155"/>
+  <circle cx="96" cy="1041" r="7" fill="#22d3ee"/><text x="112" y="1046" class="small">Acción de la persona</text>
+  <circle cx="350" cy="1041" r="7" fill="#34d399"/><text x="366" y="1046" class="small">Publicación y edición</text>
+  <circle cx="620" cy="1041" r="7" fill="#a78bfa"/><text x="636" y="1046" class="small">Automatización</text>
+  <circle cx="860" cy="1041" r="7" fill="#fbbf24"/><text x="876" y="1046" class="small">Cierre y seguimiento</text>
+  <text x="1160" y="1046" class="small">Pulse · TechOps workflow</text>
+</svg>

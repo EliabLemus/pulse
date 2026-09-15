@@ -6,40 +6,9 @@ Pulse collects a daily update in one Slack modal and posts it automatically to t
 
 ## How to use Pulse
 
-```mermaid
-flowchart TD
-    Start["Inicio: 09:15 Guatemala o DM `standup`"] --> DM["DM con botón Completar mi update"]
-    DM --> Action{"¿Qué hace la persona?"}
+![Diagrama del flujo completo de Pulse: inicio, formulario, publicación, bloqueo, edición, omitir, recordatorios, cierre y permisos de canal.](docs/pulse-workflow.svg)
 
-    Action -->|Completar mi update| Form["Un formulario con tres preguntas DSU"]
-    Form --> Submit["Enviar update"]
-    Submit --> Thread["Publicar en el hilo diario del canal"]
-    Thread --> Blocked{"¿Reportó bloqueo?"}
-    Blocked -->|No| Saved["Update publicado"]
-    Blocked -->|Sí| Escalate["Al final del update: menciona al responsable del bloqueo"]
-    Escalate --> Saved
-    Saved --> Edit{"¿Necesita corregirlo dentro de 4 h?"}
-    Edit -->|Sí| Prefilled["Edit responses abre el mismo formulario prellenado"]
-    Prefilled --> InPlace["Actualizar el mensaje original en el hilo"]
-    Edit -->|No| Done["Listo"]
-    InPlace --> Done
-
-    Action -->|Omitir hoy| Skip["Marcar omitido para hoy"]
-    Skip --> NoNudge["No recibe recordatorios ni mención de ausencia"]
-    NoNudge --> Recover{"¿Cambió de idea?"}
-    Recover -->|Completar mi update o DM `standup`| Form
-    Recover -->|No| Done
-
-    DM --> Pending{"Sin update y no omitido/vacaciones"}
-    Pending -->|09:45, 10:15, 10:45| Reminder["DM: Recordatorio: falta tu update"]
-    Reminder --> Form
-    Pending -->|11:00 Guatemala| Missing["Canal: Sin update: @usuario"]
-    Missing --> Done
-
-    Thread --> Channel{"Tipo de canal"}
-    Channel -->|Público| Public["Pulse publica con chat:write.public sin unirse"]
-    Channel -->|Privado| Private["Un miembro debe invitar explícitamente a Pulse"]
-```
+[Ver el diagrama a tamaño completo](docs/pulse-workflow.svg)
 
 ### Qué ocurre a cada hora
 
@@ -76,25 +45,18 @@ Sin bloqueos
 
 For public target channels such as `#techops-automation`, `chat:write.public` lets Pulse post without joining the channel. Pulse deliberately does **not** request `channels:join`, so it cannot add itself to any channel. Private channels still require an explicit invitation from a channel member.
 
-[![Release](https://img.shields.io/github/v/release/morgenruf/morgenruf?label=latest&color=brightgreen)](https://github.com/morgenruf/morgenruf/releases)
-[![Tests](https://github.com/morgenruf/morgenruf/actions/workflows/test.yml/badge.svg)](https://github.com/morgenruf/morgenruf/actions/workflows/test.yml)
-[![Lint](https://github.com/morgenruf/morgenruf/actions/workflows/lint.yml/badge.svg)](https://github.com/morgenruf/morgenruf/actions/workflows/lint.yml)
-[![codecov](https://codecov.io/gh/morgenruf/morgenruf/branch/main/graph/badge.svg)](https://codecov.io/gh/morgenruf/morgenruf)
+[![Tests](https://github.com/EliabLemus/pulse/actions/workflows/test.yml/badge.svg)](https://github.com/EliabLemus/pulse/actions/workflows/test.yml)
+[![Lint](https://github.com/EliabLemus/pulse/actions/workflows/lint.yml/badge.svg)](https://github.com/EliabLemus/pulse/actions/workflows/lint.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A self-hosted, open-source Slack standup bot. Ask structured daily questions, post formatted summaries to team channels, and keep full ownership of your standup data — no SaaS subscription required.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-operational-brightgreen)](https://status.morgenruf.dev)
-[![Helm](https://img.shields.io/badge/Helm-3.x-blue)](https://helm.sh)
-[![Docker](https://img.shields.io/badge/Docker-DockerHub-blue)](https://hub.docker.com/r/morgenruf/morgenruf)
+A self-hosted, open-source Slack standup bot. Ask structured daily questions, post formatted updates to team channels, and keep full ownership of your standup data — no SaaS subscription required.
 
 ---
 
 ## Repository Structure
 
 ```
-morgenruf/
+pulse/
 ├── app/
 │   ├── src/            ← Python bot (Flask + slack-bolt)
 │   ├── migrations/     ← SQL migration files (auto-applied on start)
@@ -188,8 +150,8 @@ The fastest way to run Morgenruf locally or on a Mac server.
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/morgenruf/morgenruf
-cd morgenruf/app
+git clone https://github.com/EliabLemus/pulse.git
+cd pulse/app
 cp .env.example .env
 # Edit .env with your Slack credentials
 ```
