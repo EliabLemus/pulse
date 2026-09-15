@@ -4,6 +4,50 @@
 
 Pulse collects a daily update in one Slack modal and posts it automatically to the team channel. It is self-hosted: Slack callbacks reach the app over HTTPS, while standup data lives in PostgreSQL.
 
+## How to use Pulse
+
+```mermaid
+flowchart TD
+    Start["Inicio: 09:15 Guatemala o DM `standup`"] --> DM["DM con botón Completar mi update"]
+    DM --> Action{"¿Qué hace la persona?"}
+
+    Action -->|Completar mi update| Form["Un formulario con tres preguntas DSU"]
+    Form --> Submit["Enviar update"]
+    Submit --> Thread["Publicar en el hilo diario del canal"]
+    Thread --> Blocked{"¿Reportó bloqueo?"}
+    Blocked -->|No| Saved["Update publicado"]
+    Blocked -->|Sí| Escalate["Al final del update: menciona al responsable del bloqueo"]
+    Escalate --> Saved
+    Saved --> Edit{"¿Necesita corregirlo dentro de 4 h?"}
+    Edit -->|Sí| Prefilled["Edit responses abre el mismo formulario prellenado"]
+    Prefilled --> InPlace["Actualizar el mensaje original en el hilo"]
+    Edit -->|No| Done["Listo"]
+    InPlace --> Done
+
+    Action -->|Omitir hoy| Skip["Marcar omitido para hoy"]
+    Skip --> NoNudge["No recibe recordatorios ni mención de ausencia"]
+    NoNudge --> Recover{"¿Cambió de idea?"}
+    Recover -->|Completar mi update o DM `standup`| Form
+    Recover -->|No| Done
+
+    DM --> Pending{"Sin update y no omitido/vacaciones"}
+    Pending -->|09:45, 10:15, 10:45| Reminder["DM: Recordatorio: falta tu update"]
+    Reminder --> Form
+    Pending -->|11:00 Guatemala| Missing["Canal: Sin update: @usuario"]
+    Missing --> Done
+
+    Thread --> Channel{"Tipo de canal"}
+    Channel -->|Público| Public["Pulse publica con chat:write.public sin unirse"]
+    Channel -->|Privado| Private["Un miembro debe invitar explícitamente a Pulse"]
+```
+
+### Qué ocurre a cada hora
+
+- **09:15 Guatemala, lunes a jueves:** Pulse envía el DM inicial.
+- **09:45, 10:15 y 10:45:** solo quienes siguen pendientes reciben un recordatorio por DM. Las personas que respondieron, omitieron el día o están de vacaciones quedan excluidas.
+- **11:00:** Pulse publica únicamente `Sin update: @usuario` para cada participante pendiente. **No** vuelve a resumir o mencionar los avances ya publicados en el hilo diario.
+- **Bloqueos:** el update se publica completo y la mención al responsable se añade al final, para no romper la lectura del avance.
+
 ## Pulse TechOps workflow
 
 1. At the configured time, Pulse sends each member a DM with **Completar mi update**.
