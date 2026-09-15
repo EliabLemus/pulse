@@ -186,7 +186,7 @@ def _format_standup(
             formatted_answer = "_None_ ✅"
         else:
             formatted_answer = _blocks.linkify_issues(raw) if raw != "—" else raw
-        parts.append(f"*{label}:*\n{formatted_answer}")
+        parts.append(f"*{label}*\n{formatted_answer}")
 
     text = "\n\n".join(parts)
     if mood:

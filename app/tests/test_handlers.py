@@ -71,6 +71,19 @@ class TestFormatStandup:
         result = _format_standup("U1", ["y", "t", "Waiting on PR review"])
         assert "Waiting on PR review" in result
 
+    def test_questions_are_bold_without_trailing_colon(self):
+        from handlers import _format_standup
+
+        questions = [
+            "¿Qué lograste avanzar o completar ayer?",
+            "¿Cuál es tu tarea principal para hoy?",
+            "¿Tienes algún bloqueo que te impida avanzar hoy?",
+        ]
+        result = _format_standup("U1", ["ayer", "hoy", "sin bloqueos"], questions=questions)
+        for q in questions:
+            assert f"{q}:*" not in result  # colon removed
+            assert f"*{q}*\n" in result  # question fully bold, answer below
+
     def test_mood_included_when_provided(self):
         from handlers import _format_standup
 
