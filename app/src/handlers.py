@@ -766,7 +766,12 @@ def can_edit_response(team_id: str, user_id: str, standup_id: int) -> bool:
         return False
 
 
-def _handle_dm_message(event, client, logger) -> None:  # noqa: ANN001
+def _handle_slack_dm_event(event, body, client, logger) -> None:  # noqa: ANN001
+    """Route a Slack Events API DM using its outer workspace identifier."""
+    _handle_dm_message(event, client, logger, team_id=body.get("team_id"))
+
+
+def _handle_dm_message(event, client, logger, *, team_id: str | None = None) -> None:  # noqa: ANN001
     """Collect an active standup answer or start one from a manual DM.
 
     Slack Bolt dispatches the broad ``event("message")`` listener before its
@@ -777,14 +782,14 @@ def _handle_dm_message(event, client, logger) -> None:  # noqa: ANN001
         return
 
     user_id: str = event["user"]
-    team_id: str = event.get("team", "")
+    resolved_team_id = team_id or event.get("team", "")
     text: str = event.get("text", "").strip()
-    cache_key = f"{team_id}:{user_id}"
+    cache_key = f"{resolved_team_id}:{user_id}"
 
     session = state_store.get(cache_key)
     if not session:
         if text.casefold() == "standup":
-            _start_standup_session(user_id, team_id, client)
+            _start_standup_session(user_id, resolved_team_id, client)
         return
 
     session = state_store.record_answer(cache_key, text)
@@ -847,9 +852,9 @@ def register_handlers(app: App) -> None:
             logger.warning("app_uninstalled: no installation found for team %s", team_id)
 
     @app.event("message")
-    def handle_dm(event, say, client, logger):  # noqa: ANN001
+    def handle_dm(event, say, client, logger, body):  # noqa: ANN001
         """Handle incoming DMs — collect answers or start a manual standup."""
-        _handle_dm_message(event, client, logger)
+        _handle_slack_dm_event(event, body, client, logger)
 
     @app.event("app_home_opened")
     def handle_app_home(event, client, body=None):  # noqa: ANN001

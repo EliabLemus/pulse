@@ -234,6 +234,20 @@ class TestIncomingDMDispatch:
 
         start.assert_called_once_with("U1", "T1", client)
 
+    def test_real_slack_event_body_supplies_workspace_for_manual_standup(self):
+        import handlers
+
+        client = MagicMock()
+        event = {"channel_type": "im", "user": "U1", "text": "standup"}
+        body = {"team_id": "T1", "event": event, "type": "event_callback"}
+        with (
+            patch.object(handlers.state_store, "get", return_value=None),
+            patch.object(handlers, "_start_standup_session") as start,
+        ):
+            handlers._handle_slack_dm_event(event, body, client, MagicMock())
+
+        start.assert_called_once_with("U1", "T1", client)
+
     def test_active_session_text_advances_instead_of_restarting(self):
         import handlers
 
