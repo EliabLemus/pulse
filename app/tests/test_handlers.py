@@ -119,6 +119,72 @@ class TestPersistStandup:
 
 
 # ---------------------------------------------------------------------------
+# Single-form submission
+# ---------------------------------------------------------------------------
+
+
+def _standup_form_handler():
+    """Register the production callbacks and return the single-form submit handler."""
+    import handlers
+
+    captured: dict = {}
+    app = MagicMock()
+    app.view.side_effect = lambda callback_id: lambda fn: captured.setdefault(callback_id, fn)
+    app.action.side_effect = lambda *_args, **_kwargs: lambda fn: fn
+    app.event.side_effect = lambda *_args, **_kwargs: lambda fn: fn
+    app.command.side_effect = lambda *_args, **_kwargs: lambda fn: fn
+    app.options.side_effect = lambda *_args, **_kwargs: lambda fn: fn
+    app.shortcut.side_effect = lambda *_args, **_kwargs: lambda fn: fn
+    handlers.register_handlers(app)
+    return captured["standup_form_modal"]
+
+
+class TestSingleFormSubmission:
+    def test_form_submission_completes_after_three_answers_without_mood(self):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1", team_id="T1", channel="C1", questions=["Q1", "Q2", "Q3"]
+        )
+        fresh = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Q1", "Q2", "Q3"],
+            answers=["ayer", "hoy", "sin bloqueos"],
+            step=3,
+        )
+        session.answers = ["stale yesterday", "stale today"]
+        session.step = 2
+        body = {
+            "user": {"id": "U1"},
+            "team": {"id": "T1"},
+            "view": {
+                "private_metadata": "T1:U1",
+                "state": {
+                    "values": {
+                        f"question_{index}": {f"answer_{index}": {"value": answer}}
+                        for index, answer in enumerate(["ayer", "hoy", "sin bloqueos"])
+                    }
+                },
+            },
+        }
+        client = MagicMock()
+
+        with (
+            patch.object(handlers.state_store, "get", return_value=session),
+            patch.object(handlers.state_store, "replace_answers", return_value=fresh) as replace_answers,
+            patch.object(handlers, "_complete_standup") as complete,
+            patch.object(handlers, "_send_mood_block") as send_mood,
+        ):
+            _standup_form_handler()(MagicMock(), body, client)
+
+        replace_answers.assert_called_once_with("T1:U1", ["ayer", "hoy", "sin bloqueos"])
+        complete.assert_called_once_with("U1", fresh, client)
+        send_mood.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # _send_question_block
 # ---------------------------------------------------------------------------
 
@@ -248,27 +314,23 @@ class TestIncomingDMDispatch:
 
         start.assert_called_once_with("U1", "T1", client)
 
-    def test_active_session_text_advances_instead_of_restarting(self):
+    def test_active_session_text_redirects_to_the_single_form_without_recording(self):
         import handlers
 
         client = MagicMock()
         logger = MagicMock()
         active = MagicMock()
-        active.questions = ["Q1", "Q2"]
-        advanced = MagicMock()
-        advanced.questions = ["Q1", "Q2"]
-        advanced.step = 1
         event = {"channel_type": "im", "user": "U1", "team": "T1", "text": "answer"}
         with (
             patch.object(handlers.state_store, "get", return_value=active),
-            patch.object(handlers.state_store, "record_answer", return_value=advanced) as record_answer,
-            patch.object(handlers, "_send_question_block") as send_question,
+            patch.object(handlers.state_store, "record_answer") as record_answer,
             patch.object(handlers, "_start_standup_session") as start,
         ):
             handlers._handle_dm_message(event, client, logger)
 
-        record_answer.assert_called_once_with("T1:U1", "answer")
-        send_question.assert_called_once_with(client, "U1", "Q2", 1, None)
+        record_answer.assert_not_called()
+        client.chat_postMessage.assert_called_once()
+        assert "Completar update" in client.chat_postMessage.call_args.kwargs["text"]
         start.assert_not_called()
 
     def test_non_dm_message_is_ignored(self):

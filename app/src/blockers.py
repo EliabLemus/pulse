@@ -23,7 +23,7 @@ import re
 # A question is about blockers if it says so. Deliberately narrow: a question
 # that does not mention being blocked or stuck should never have its answer
 # counted, which is the bug this module exists to prevent.
-_BLOCKER_QUESTION = re.compile(r"block|blocker|impediment|stuck|blocked", re.I)
+_BLOCKER_QUESTION = re.compile(r"block|blocker|impediment|stuck|blocked|bloqueo", re.I)
 
 # Wording people actually use for "nothing is blocking me".
 _NO_BLOCKER_PHRASES = frozenset(
@@ -58,6 +58,10 @@ _NO_BLOCKER_PHRASES = frozenset(
         "ok",
         "okay",
         "nada",
+        "sin bloqueo",
+        "sin bloqueos",
+        "ninguno",
+        "ninguna",
         "zero",
         "x",
         "tbd",

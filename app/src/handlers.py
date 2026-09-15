@@ -571,19 +571,15 @@ def _complete_standup(user_id: str, session, client) -> None:
     try:
         from workflow import evaluate_rules  # noqa: PLC0415
 
-        # Check last answer for blockers (convention: last question is usually blockers)
-        blocker_text = question_answers[-1] if question_answers else ""
-        has_blockers = bool(blocker_text.strip()) and blocker_text.strip().lower() not in (
-            "none",
-            "no",
-            "nope",
-            "-",
-            "n/a",
-        )
+        # Use the schedule's actual blocker question and shared no-blocker normalization.
+        from blockers import find_blocker_answer, has_blockers  # noqa: PLC0415
+
+        blocker_text = find_blocker_answer(session.questions, question_answers) or ""
+        blocker_detected = has_blockers(session.questions, question_answers)
         evaluate_rules(
             session.team_id,
             "blocker_detected",
-            {"has_blockers": has_blockers, "blockers": blocker_text, "team": session.team_id},
+            {"has_blockers": blocker_detected, "blockers": blocker_text, "team": session.team_id},
             client,
         )
         evaluate_rules(session.team_id, "standup_complete", {"team": session.team_id}, client)
@@ -792,21 +788,10 @@ def _handle_dm_message(event, client, logger, *, team_id: str | None = None) -> 
             _start_standup_session(user_id, resolved_team_id, client)
         return
 
-    session = state_store.record_answer(cache_key, text)
-    n_questions = len(session.questions)
-
-    if session.step < n_questions:
-        _send_question_block(
-            client,
-            user_id,
-            session.questions[session.step],
-            session.step,
-            _initial_answer_for(session, session.step),
-        )
-    elif session.step == n_questions:
-        _send_mood_block(client, user_id)
-    else:
-        _complete_standup(user_id, session, client)
+    client.chat_postMessage(
+        channel=user_id,
+        text="Usa el botón *Completar update* del mensaje de Pulse para enviar las tres respuestas en un solo formulario.",
+    )
 
 
 def register_handlers(app: App) -> None:
@@ -1461,10 +1446,8 @@ def register_handlers(app: App) -> None:
                 session.step,
                 _initial_answer_for(session, session.step),
             )
-        elif session.step == n_questions:
-            # All main questions answered — ask mood
-            _send_mood_block(client, user_id)
-        # else: mood comes via button click or plain-text DM fallback
+        else:
+            _complete_standup(user_id, session, client)
 
     # Backwards-compat: older messages still in user DMs use the old action_id
     # via dispatch_action. Accept those events so they don't 404 against Bolt.
@@ -1473,20 +1456,13 @@ def register_handlers(app: App) -> None:
         ack()
 
     @app.action(re.compile(r"mood_(great|okay|rough)"))
-    def handle_mood_button(ack, body, client):  # noqa: ANN001
-        """Handle mood button click to finalize standup."""
+    def handle_legacy_mood_button(ack, body, client):  # noqa: ANN001
+        """Acknowledge stale mood buttons without recording more mood data."""
         ack()
-        user_id: str = body["user"]["id"]
-        team_id: str = body["team"]["id"]
-        mood: str = body["actions"][0].get("value", "")
-
-        cache_key = f"{team_id}:{user_id}"
-        session = state_store.get(cache_key)
-        if not session:
-            return
-
-        session = state_store.record_answer(cache_key, mood)
-        _complete_standup(user_id, session, client)
+        client.chat_postMessage(
+            channel=body["user"]["id"],
+            text="Este flujo ya no captura mood. Usa *Completar update* en el mensaje más reciente de Pulse.",
+        )
 
     @app.command("/standup")
     def handle_standup_command(ack, body, client):  # noqa: ANN001
@@ -1753,17 +1729,25 @@ def register_handlers(app: App) -> None:
         # Collect answers from all question fields (rich_text_input)
         import blocks as _blocks  # noqa: PLC0415
 
+        answers: list[str] = []
         for i in range(len(session.questions)):
             block_id = f"question_{i}"
             action_id = f"answer_{i}"
             field = values.get(block_id, {}).get(action_id, {})
             # rich_text_input → rich_text_value; fallback to plain value
             rt = field.get("rich_text_value")
-            answer = _blocks.rich_text_to_mrkdwn(rt) if rt else field.get("value", "")
-            session = state_store.record_answer(cache_key, answer)
+            answers.append(_blocks.rich_text_to_mrkdwn(rt) if rt else field.get("value", ""))
 
-        # Ask mood after form submission
-        _send_mood_block(client, user_id)
+        session = state_store.replace_answers(cache_key, answers)
+        if not session:
+            client.chat_postMessage(
+                channel=user_id,
+                text="⚠️ Tu sesión expiró. Escribe `standup` para iniciar una nueva.",
+            )
+            return
+
+        # A single submitted form is the complete standup; do not collect mood.
+        _complete_standup(user_id, session, client)
 
     @app.action("standup_edit")
     def handle_standup_edit(ack, body, say, client):  # noqa: ANN001

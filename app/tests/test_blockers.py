@@ -44,6 +44,9 @@ class TestRealProductionValues:
     def test_a_trailing_qualifier_does_not_change_the_answer(self):
         for value in ["nothing for now", "• nothing for now", "none as of now", "No blockers today"]:
             assert reports_a_blocker(value) is False, value
+    def test_spanish_no_blocker_answers_are_not_blockers(self):
+        for value in ["nada", "sin bloqueos", "sin bloqueo", "ninguno", "ninguna"]:
+            assert reports_a_blocker(value) is False, value
 
 
 class TestRealBlockersStillCount:
@@ -76,6 +79,11 @@ class TestQuestionDecidesWhetherToLook:
         assert has_blockers(DEFAULT_Q, ["x", "y", "waiting on creds"]) is True
         assert has_blockers(DEFAULT_Q, ["x", "y", "Na"]) is False
 
+    def test_spanish_blocker_question_preserves_real_blockers(self):
+        questions = ["Ayer", "Hoy", "¿Tienes algún bloqueo que te impida avanzar hoy?"]
+        assert has_blockers(questions, ["x", "y", "Espero permisos de deploy"]) is True
+        assert has_blockers(questions, ["x", "y", "sin bloqueos"]) is False
+
     def test_a_standup_with_no_blocker_question_never_reports_one(self):
         questions = ["Previous day work", "Plan for today", "Availability in Hours"]
         assert has_blockers(questions, ["a", "b", "anything at all here"]) is False
@@ -86,7 +94,13 @@ class TestQuestionDecidesWhetherToLook:
         assert has_blockers(questions, ["stuck on auth", "b", "c"]) is True
 
     def test_question_wording_variants(self):
-        for q in ["Any blockers?", "Any blockers or impediments?", "Anything blocking you?", "Are you stuck?"]:
+        for q in [
+            "Any blockers?",
+            "Any blockers or impediments?",
+            "Anything blocking you?",
+            "Are you stuck?",
+            "¿Tienes algún bloqueo que te impida avanzar hoy?",
+        ]:
             assert is_blocker_question(q) is True, q
         for q in ["⏳ Availability in Hours", "What are you working on today?", "Mood?", ""]:
             assert is_blocker_question(q) is False, q

@@ -697,8 +697,7 @@ def create_standup_modal(existing_config: dict | None = None, bot_channels: list
 
 
 def standup_dm_message(questions: list[str], standup_name: str) -> dict:
-    """DM message sent to user when it is standup time."""
-    first_question = questions[0] if questions else "What did you do yesterday?"
+    """DM entrypoint for the one-form standup capture."""
     return {
         "blocks": [
             {
@@ -706,7 +705,7 @@ def standup_dm_message(questions: list[str], standup_name: str) -> dict:
                 "block_id": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"🌅 Time for your standup! — {standup_name}",
+                    "text": f"🟢 {standup_name}",
                     "emoji": True,
                 },
             },
@@ -715,19 +714,10 @@ def standup_dm_message(questions: list[str], standup_name: str) -> dict:
                 "block_id": "intro",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (
-                        "You can answer each question one by one by *responding in this DM*. "
-                        "Reply with `pass` or `NA` to skip a question and move on. "
-                        "Or click *Fill in form* to answer all questions at once."
-                    ),
+                    "text": "Completa tu update diario en un solo formulario. Al enviarlo, Pulse lo publicará automáticamente al equipo.",
                 },
             },
             {"type": "divider"},
-            {
-                "type": "section",
-                "block_id": "first_question",
-                "text": {"type": "mrkdwn", "text": f"• *{first_question}*"},
-            },
             {
                 "type": "actions",
                 "block_id": "standup_actions",
@@ -735,42 +725,32 @@ def standup_dm_message(questions: list[str], standup_name: str) -> dict:
                     {
                         "type": "button",
                         "action_id": "fill_in_form",
-                        "text": {"type": "plain_text", "text": "Fill in form", "emoji": True},
+                        "text": {"type": "plain_text", "text": "Completar update", "emoji": True},
                         "style": "primary",
                         "value": "fill_in_form",
                     },
                     {
                         "type": "button",
                         "action_id": "skip_standup",
-                        "text": {"type": "plain_text", "text": "Skip today", "emoji": True},
+                        "text": {"type": "plain_text", "text": "Omitir hoy", "emoji": True},
                         "style": "danger",
                         "value": "skip_standup",
                         "confirm": {
-                            "title": {"type": "plain_text", "text": "Skip standup?"},
+                            "title": {"type": "plain_text", "text": "¿Omitir update?"},
                             "text": {
                                 "type": "plain_text",
-                                "text": "Skip today's standup? Your teammates won't see an update from you.",
+                                "text": "El equipo no verá un update tuyo hoy.",
                             },
-                            "confirm": {"type": "plain_text", "text": "Yes, skip"},
-                            "deny": {"type": "plain_text", "text": "Never mind"},
+                            "confirm": {"type": "plain_text", "text": "Sí, omitir"},
+                            "deny": {"type": "plain_text", "text": "Cancelar"},
                         },
                     },
                     {
                         "type": "button",
                         "action_id": "im_away",
-                        "text": {"type": "plain_text", "text": "I'm away", "emoji": True},
+                        "text": {"type": "plain_text", "text": "Estoy ausente", "emoji": True},
                         "value": "im_away",
                     },
-                ],
-            },
-            {
-                "type": "context",
-                "block_id": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "Or just type your answer below",
-                    }
                 ],
             },
         ]
@@ -811,9 +791,9 @@ def standup_form_modal(questions: list[str], standup_name: str, previous_answers
     return {
         "type": "modal",
         "callback_id": "standup_form_modal",
-        "title": {"type": "plain_text", "text": standup_name[:24]},
-        "submit": {"type": "plain_text", "text": "Submit standup"},
-        "close": {"type": "plain_text", "text": "Cancel"},
+        "title": {"type": "plain_text", "text": "Pulse — Update diario"},
+        "submit": {"type": "plain_text", "text": "Enviar update"},
+        "close": {"type": "plain_text", "text": "Cancelar"},
         "blocks": blocks,
     }
 

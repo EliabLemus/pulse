@@ -15,7 +15,11 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 SCHEDULE_NAME = "Pulse TechOps Pilot"
-QUESTIONS = ["What did you complete yesterday?", "What are you working on today?", "Any blockers?"]
+QUESTIONS = [
+    "¿Qué lograste avanzar o completar ayer?",
+    "¿Cuál es tu tarea principal para hoy?",
+    "¿Tienes algún bloqueo que te impida avanzar hoy?",
+]
 _REQUIRED = (
     "DATABASE_URL",
     "SLACK_BOT_TOKEN",
