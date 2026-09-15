@@ -186,6 +186,15 @@ class TestSkipHelpers:
             db.skip_today("T1", "U1")
         cur.execute.assert_called()
 
+    def test_unskip_today_executes_delete(self):
+        pool, conn, cur = _mock_pool()
+        with patch.object(db, "_pool", pool):
+            db.unskip_today("T1", "U1")
+        sql = cur.execute.call_args.args[0]
+        assert "DELETE FROM user_skip" in sql
+        assert "CURRENT_DATE" in sql
+        cur.execute.assert_called_once_with(sql, ("T1", "U1"))
+
 
 # ---------------------------------------------------------------------------
 # get_member_role

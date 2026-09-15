@@ -305,6 +305,13 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
     try:
         import db  # noqa: PLC0415
 
+        # A deliberate manual start reverses an accidental "skip today":
+        # without this, the persisted skip would keep suppressing reminders.
+        try:
+            db.unskip_today(team_id, user_id)
+        except Exception as e:
+            logger.warning("Could not clear skip for %s: %s", cache_key, e)
+
         sched = None
         if schedule_id is not None:
             # Explicit schedule from a per-schedule UI (App Home button etc.)
@@ -996,7 +1003,35 @@ def register_handlers(app: App) -> None:
             logger.warning("skip_standup button error: %s", e)
         cache_key = f"{team_id}:{user_id}"
         state_store.clear(cache_key)
-        client.chat_postMessage(channel=user_id, text="✅ Got it! You've skipped today's standup. See you tomorrow! 👋")
+        import blocks as _blocks  # noqa: PLC0415
+
+        client.chat_postMessage(channel=user_id, blocks=_blocks.standup_resume_message()["blocks"])
+
+    @app.action("resume_standup")
+    def handle_resume_standup(ack, body, client):  # noqa: ANN001
+        """Recover from an accidental skip: unskip and open the same form."""
+        ack()
+        user_id: str = body["user"]["id"]
+        team_id: str = body["team"]["id"]
+        try:
+            import db  # noqa: PLC0415
+
+            db.unskip_today(team_id, user_id)
+        except Exception as e:
+            logger.warning("resume_standup unskip error: %s", e)
+        _start_standup_session(user_id, team_id, client)
+        session = state_store.get(f"{team_id}:{user_id}")
+        if not session:
+            client.chat_postMessage(
+                channel=user_id,
+                text="⚠️ No pude iniciar tu update. Escribe `standup` para intentar de nuevo.",
+            )
+            return
+        import blocks as _blocks  # noqa: PLC0415
+
+        modal = _blocks.standup_form_modal(session.questions, session.standup_name or "Standup")
+        modal["private_metadata"] = f"{team_id}:{user_id}"
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
 
     @app.action("fill_in_form")
     def handle_fill_in_form(ack, body, client):  # noqa: ANN001
@@ -1827,11 +1862,17 @@ def register_handlers(app: App) -> None:
             editing_standup_id=standup_id,
             edit_initial_answers=initial_answers,
         )
-        client.chat_postMessage(
-            channel=user_id,
-            text="✏️ Let's update your standup — your previous answers are pre-filled, edit what you need.",
+        # Open the SAME single form, pre-filled with the previous answers,
+        # instead of the legacy step-by-step question flow.
+        import blocks as _blocks  # noqa: PLC0415
+
+        modal = _blocks.standup_form_modal(
+            session.questions,
+            session.standup_name or "Standup",
+            previous_answers=initial_answers,
         )
-        _send_question_block(client, user_id, session.questions[0], 0, _initial_answer_for(session, 0))
+        modal["private_metadata"] = cache_key
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
 
     @app.message("skip")
     def handle_skip(message, say):  # noqa: ANN001
@@ -1849,7 +1890,9 @@ def register_handlers(app: App) -> None:
         # Also clear any active session
         cache_key = f"{team_id}:{user_id}"
         state_store.clear(cache_key)
-        say("✅ Got it! You've skipped today's standup. See you tomorrow! 👋")
+        import blocks as _blocks  # noqa: PLC0415
+
+        say(blocks=_blocks.standup_resume_message()["blocks"])
 
     @app.message(re.compile(r"i'?m back(?: from vacation)?|back from vacation|im back", re.IGNORECASE))
     def handle_back_from_vacation(message, say):  # noqa: ANN001

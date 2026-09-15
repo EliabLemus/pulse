@@ -725,7 +725,7 @@ def standup_dm_message(questions: list[str], standup_name: str) -> dict:
                     {
                         "type": "button",
                         "action_id": "fill_in_form",
-                        "text": {"type": "plain_text", "text": "Completar update", "emoji": True},
+                        "text": {"type": "plain_text", "text": "Completar mi update", "emoji": True},
                         "style": "primary",
                         "value": "fill_in_form",
                     },
@@ -739,7 +739,7 @@ def standup_dm_message(questions: list[str], standup_name: str) -> dict:
                             "title": {"type": "plain_text", "text": "¿Omitir update?"},
                             "text": {
                                 "type": "plain_text",
-                                "text": "El equipo no verá un update tuyo hoy.",
+                                "text": "Sin update tuyo hoy. Puedes revertirlo después con «Completar mi update».",
                             },
                             "confirm": {"type": "plain_text", "text": "Sí, omitir"},
                             "deny": {"type": "plain_text", "text": "Cancelar"},
@@ -751,6 +751,33 @@ def standup_dm_message(questions: list[str], standup_name: str) -> dict:
                         "text": {"type": "plain_text", "text": "Estoy ausente", "emoji": True},
                         "value": "im_away",
                     },
+                ],
+            },
+        ]
+    }
+
+
+def standup_resume_message() -> dict:
+    """Confirmation shown after skipping, with a same-day recovery path."""
+    return {
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "✅ Update omitido por hoy. Si te equivocaste, todavía puedes completarlo:",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": "resume_standup",
+                        "text": {"type": "plain_text", "text": "Completar mi update", "emoji": True},
+                        "style": "primary",
+                        "value": "resume_standup",
+                    }
                 ],
             },
         ]

@@ -185,6 +185,206 @@ class TestSingleFormSubmission:
 
 
 # ---------------------------------------------------------------------------
+# Recoverable skip / resume
+# ---------------------------------------------------------------------------
+
+
+def _action_handler(action_id: str):
+    """Register the production callbacks and return one action callback."""
+    import handlers
+
+    captured: dict = {}
+    app = MagicMock()
+    app.view.side_effect = lambda *_a, **_k: lambda fn: fn
+    app.event.side_effect = lambda *_a, **_k: lambda fn: fn
+    app.command.side_effect = lambda *_a, **_k: lambda fn: fn
+    app.options.side_effect = lambda *_a, **_k: lambda fn: fn
+    app.shortcut.side_effect = lambda *_a, **_k: lambda fn: fn
+
+    def action(name, *_a, **_k):
+        def decorator(fn):
+            key = name.pattern if hasattr(name, "pattern") else name
+            captured.setdefault(key, fn)
+            return fn
+
+        return decorator
+
+    app.action.side_effect = action
+    handlers.register_handlers(app)
+    return captured[action_id]
+
+
+class TestRecoverableSkip:
+    def _skip_body(self):
+        return {
+            "user": {"id": "U1", "team_id": "T1"},
+            "team": {"id": "T1"},
+            "actions": [{"action_id": "skip_standup", "value": "skip_standup"}],
+        }
+
+    def test_skip_confirmation_offers_a_recovery_button(self):
+        import handlers
+
+        client = MagicMock()
+        db_mock = MagicMock()
+        with patch.dict(sys.modules, {"db": db_mock}):
+            _action_handler("skip_standup")(ack=MagicMock(), body=self._skip_body(), client=client)
+
+        db_mock.skip_today.assert_called_once_with("T1", "U1")
+        blocks = client.chat_postMessage.call_args.kwargs["blocks"]
+        buttons = [e for b in blocks if b["type"] == "actions" for e in b["elements"]]
+        assert any(e["action_id"] == "resume_standup" for e in buttons)
+
+    def test_resume_unskips_and_opens_the_form_directly(self):
+        import handlers
+
+        client = MagicMock()
+        db_mock = MagicMock()
+        db_mock.get_standup_schedule_for_channel.return_value = None
+        session = state.UserSession(cache_key="T1:U1", team_id="T1", channel="C1", questions=["Q1", "Q2", "Q3"])
+        body = {
+            "user": {"id": "U1", "team_id": "T1"},
+            "team": {"id": "T1"},
+            "trigger_id": "tr-1",
+            "actions": [{"action_id": "resume_standup"}],
+        }
+        with (
+            patch.dict(sys.modules, {"db": db_mock}),
+            patch.object(handlers, "_start_standup_session") as start,
+            patch.object(handlers.state_store, "get", return_value=session),
+        ):
+            _action_handler("resume_standup")(ack=MagicMock(), body=body, client=client)
+
+        db_mock.unskip_today.assert_called_once_with("T1", "U1")
+        start.assert_called_once_with("U1", "T1", client)
+        assert client.views_open.call_args.kwargs["trigger_id"] == "tr-1"
+
+    def test_manual_start_clears_todays_skip(self):
+        from handlers import _start_standup_session
+
+        client = MagicMock()
+        db_mock = MagicMock()
+        db_mock.get_schedule_for_user.return_value = None
+        db_mock.get_workspace_config.return_value = {"channel_id": "C1", "questions": ["Q1", "Q2", "Q3"]}
+        with (
+            patch.dict(sys.modules, {"db": db_mock}),
+            patch.object(state.state_store, "is_active", return_value=False),
+            patch.object(state.state_store, "start"),
+        ):
+            _start_standup_session("U1", "T1", client)
+
+        db_mock.unskip_today.assert_called_once_with("T1", "U1")
+
+    def test_text_skip_also_offers_the_recovery_button(self):
+        import handlers
+
+        captured = {}
+        app = MagicMock()
+        app.view.side_effect = lambda *_a, **_k: lambda fn: fn
+        app.event.side_effect = lambda *_a, **_k: lambda fn: fn
+        app.command.side_effect = lambda *_a, **_k: lambda fn: fn
+        app.options.side_effect = lambda *_a, **_k: lambda fn: fn
+        app.shortcut.side_effect = lambda *_a, **_k: lambda fn: fn
+
+        def register(kind):
+            def registration(name=None, *_a, **_k):
+                def decorator(fn):
+                    key = name.pattern if hasattr(name, "pattern") else name
+                    captured[(kind, key)] = fn
+                    return fn
+
+                return decorator
+
+            return registration
+
+        app.action.side_effect = register("action")
+        app.message.side_effect = register("message")
+        handlers.register_handlers(app)
+        say = MagicMock()
+        db_mock = MagicMock()
+        with patch.dict(sys.modules, {"db": db_mock}):
+            captured[("message", "skip")]({"channel_type": "im", "user": "U1", "team": "T1"}, say)
+
+        db_mock.skip_today.assert_called_once_with("T1", "U1")
+        blocks = say.call_args.kwargs["blocks"]
+        buttons = [e for b in blocks if b["type"] == "actions" for e in b["elements"]]
+        assert any(e["action_id"] == "resume_standup" for e in buttons)
+
+
+class TestSingleFormEdit:
+    def test_edit_opens_prefilled_modal_instead_of_step_by_step(self):
+        import handlers
+
+        client = MagicMock()
+        db_mock = MagicMock()
+        db_mock.get_schedule_for_user.return_value = {
+            "channel_id": "C1",
+            "questions": ["Q1", "Q2", "Q3"],
+            "id": 7,
+            "name": "Pulse TechOps Pilot",
+        }
+        db_mock.get_standup_by_id.return_value = {
+            "yesterday": "ayer",
+            "today": "hoy",
+            "blockers": "bloqueo",
+        }
+        body = {
+            "user": {"id": "U1", "team_id": "T1"},
+            "team": {"id": "T1"},
+            "trigger_id": "tr-2",
+            "actions": [{"value": "42"}],
+        }
+        started = {}
+        real_start = state.state_store.start
+
+        def fake_start(cache_key, channel, **kwargs):
+            started["kwargs"] = kwargs
+            return real_start(cache_key, channel, **kwargs)
+
+        with (
+            patch.dict(sys.modules, {"db": db_mock}),
+            patch.object(handlers, "can_edit_response", return_value=True),
+            patch.object(handlers.state_store, "start", side_effect=fake_start),
+            patch.object(handlers, "_send_question_block") as send_question,
+        ):
+            _action_handler("standup_edit")(
+                ack=MagicMock(), body=body, say=MagicMock(), client=client
+            )
+
+        assert started["kwargs"]["editing_standup_id"] == 42
+        send_question.assert_not_called()
+        view = client.views_open.call_args.kwargs["view"]
+        assert view["private_metadata"] == "T1:U1"
+        assert [b["label"]["text"] for b in view["blocks"]] == ["Q1", "Q2", "Q3"]
+        assert view["blocks"][0]["element"]["initial_value"]
+
+    def test_edit_submission_updates_instead_of_duplicating(self):
+        import handlers
+
+        client = MagicMock()
+        db_mock = MagicMock()
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Q1", "Q2", "Q3"],
+            answers=["ayer editado", "hoy", "sin bloqueos"],
+            editing_standup_id=42,
+        )
+        with patch.dict(sys.modules, {"db": db_mock}):
+            handlers._complete_standup("U1", session, client)
+
+        db_mock.update_standup.assert_called_once_with(
+            user_id="U1",
+            team_id="T1",
+            yesterday="ayer editado",
+            today="hoy",
+            blockers="sin bloqueos",
+        )
+        db_mock.save_standup.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # _send_question_block
 # ---------------------------------------------------------------------------
 

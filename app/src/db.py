@@ -749,6 +749,17 @@ def is_skipped_today(team_id: str, user_id: str) -> bool:
             return cur.fetchone() is not None
 
 
+def unskip_today(team_id: str, user_id: str) -> None:
+    """Remove today's skip so reminders and manual starts work again."""
+    sql = """
+        DELETE FROM user_skip
+        WHERE team_id=%s AND user_id=%s AND skip_date=CURRENT_DATE
+    """
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (team_id, user_id))
+
+
 def set_vacation(team_id: str, user_id: str, on_vacation: bool) -> None:
     """Mark a member as on vacation (or back from vacation)."""
     sql = """
