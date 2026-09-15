@@ -126,7 +126,7 @@ def test_window_close_posts_each_remaining_user_to_the_schedule_channel():
 
     call = client.chat_postMessage.call_args.kwargs
     assert call["channel"] == "C1"
-    assert call["text"] == "⚠️ Sin update: <@U1>\n⚠️ Sin update: <@U2>\n⚠️ Sin update: <@U3>"
+    assert call["text"] == "Sin update: <@U1>\nSin update: <@U2>\nSin update: <@U3>"
 
 
 def test_registering_the_window_jobs_uses_schedule_timezone_and_days():

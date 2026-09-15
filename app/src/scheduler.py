@@ -660,7 +660,7 @@ def close_window(team_id: str, bot_token: str, schedule_id: int) -> None:
     if not channel_id:
         logger.warning("Cannot close standup window for %s/%s: no channel", team_id, schedule_id)
         return
-    text = "\n".join(f"⚠️ Sin update: <@{user_id}>" for user_id in pending)
+    text = "\n".join(f"Sin update: <@{user_id}>" for user_id in pending)
     client = WebClient(token=_fresh_bot_token(team_id, bot_token))
     try:
         _call_with_auth_retry(team_id, client, lambda current: current.chat_postMessage(channel=channel_id, text=text))
