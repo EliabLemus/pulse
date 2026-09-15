@@ -178,19 +178,19 @@ def _format_standup(
     date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
     labels = questions or _DEFAULT_LABELS
-    parts = [f"📋 *Standup from <@{user_id}>* — {date_str}\n"]
+    parts = [f"*Standup de <@{user_id}>* — {date_str}\n"]
     for i, label in enumerate(labels):
         raw = answers[i] if i < len(answers) else "—"
         # Detect "no blockers" only for the last default question
         if not questions and i == 2 and raw.strip().lower() in ("none", "no", "nope", "-", "n/a", ""):
-            formatted_answer = "_None_ ✅"
+            formatted_answer = "_None_"
         else:
             formatted_answer = _blocks.linkify_issues(raw) if raw != "—" else raw
         parts.append(f"*{label}*\n{formatted_answer}")
 
     text = "\n\n".join(parts)
     if mood:
-        text += f"\n\n*🎭 Mood:* {mood}"
+        text += f"\n\n*Mood:* {mood}"
     return text
 
 
@@ -453,7 +453,7 @@ def _complete_standup(user_id: str, session, client) -> None:
 
                 missing_mention = (sched_config.get("missing_mention") or "").strip()
                 if missing_mention and has_blockers(session.questions, question_answers):
-                    formatted = f"🚧 <@{missing_mention}> — bloqueo reportado por <@{user_id}>\n{formatted}"
+                    formatted = f"<@{missing_mention}> — bloqueo reportado por <@{user_id}>\n{formatted}"
             except Exception as e:
                 logger.warning("Unexpected error in _complete_standup checking blockers: %s", e)
             if not notify_on_report:
@@ -497,7 +497,7 @@ def _complete_standup(user_id: str, session, client) -> None:
                 display_date = now_utc.strftime("%a, %b %d.")
                 parent = client.chat_postMessage(
                     channel=channel,
-                    text=f"✨ {standup_name} Completed - {display_date} ✨",
+                    text=f"*{standup_name}* — {display_date}",
                 )
                 parent_ts = parent["ts"]
                 try:

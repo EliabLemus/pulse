@@ -57,13 +57,13 @@ class TestFormatStandup:
         from handlers import _format_standup
 
         result = _format_standup("U1", ["y", "t", "none"])
-        assert "_None_ ✅" in result
+        assert "_None_" in result
 
     def test_blockers_n_a_text(self):
         from handlers import _format_standup
 
         result = _format_standup("U1", ["y", "t", "n/a"])
-        assert "_None_ ✅" in result
+        assert "_None_" in result
 
     def test_real_blocker_preserved(self):
         from handlers import _format_standup
@@ -83,6 +83,19 @@ class TestFormatStandup:
         for q in questions:
             assert f"{q}:*" not in result  # colon removed
             assert f"*{q}*\n" in result  # question fully bold, answer below
+
+    def test_clean_style_without_decorative_emojis(self):
+        from handlers import _format_standup
+
+        questions = [
+            "¿Qué lograste avanzar o completar ayer?",
+            "¿Cuál es tu tarea principal para hoy?",
+            "¿Tienes algún bloqueo que te impida avanzar hoy?",
+        ]
+        result = _format_standup("U1", ["ayer", "hoy", "sin bloqueos"], questions=questions)
+        assert "📋" not in result
+        assert "✅" not in result
+        assert "*Standup de <@U1>*" in result
 
     def test_mood_included_when_provided(self):
         from handlers import _format_standup
