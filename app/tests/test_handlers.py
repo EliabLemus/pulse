@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
+from blocks import mrkdwn_to_rich_text  # noqa: E402
+
 # Stub heavy third-party deps before any import of handlers
 _slack_bolt_mock = MagicMock()
 _requests_mock = MagicMock()
@@ -225,9 +227,9 @@ class TestSingleFormSubmission:
             _action_handler("fill_in_form")(MagicMock(), body, client)
 
         view = client.views_open.call_args.kwargs["view"]
-        context = next(block for block in view["blocks"] if block.get("block_id") == "compass_context")
-        assert "<https://compass.zubale.com/tickets/TOP-1|TOP-1>" in context["text"]["text"]
-        assert not any(block.get("block_id", "").startswith("compass_progress_") for block in view["blocks"])
+        box = next(block for block in view["blocks"] if block.get("block_id") == "compass_progress_0")
+        assert box["element"]["initial_value"] == mrkdwn_to_rich_text("TOP-1: ")
+        assert box["optional"] is True
 
     def test_form_submission_syncs_progress_before_completing_the_standup(self):
         import handlers
@@ -264,7 +266,7 @@ class TestSingleFormSubmission:
         sync.assert_called_once_with(fresh, values)
         complete.assert_called_once_with("U1", fresh, client)
 
-    def test_submission_comments_only_mentioned_tickets_with_yesterday_today_blocker(self, monkeypatch):
+    def test_submission_comments_every_filled_ticket_box(self, monkeypatch):
         import handlers
 
         session = state.UserSession(
@@ -272,8 +274,9 @@ class TestSingleFormSubmission:
             team_id="T1",
             channel="C1",
             compass_tasks=[
-                {"key": "TOP-1", "title": "Improve deployment"},
-                {"key": "TOP-2", "title": "Review incident"},
+                {"key": "TECH-12", "title": "Taxonomia"},
+                {"key": "TECH-1", "title": "SigNoz"},
+                {"key": "TECH-3", "title": "Onboarding"},
             ],
         )
         compass = MagicMock()
@@ -283,25 +286,19 @@ class TestSingleFormSubmission:
             synced, failures = handlers._sync_compass_progress(
                 session,
                 {
-                    "question_0": {"answer_0": {"value": "Avancé TOP-1 con la matriz y revisé PRs"}},
-                    "question_1": {"answer_1": {"value": "Hoy sigo TOP-2 en dashboards"}},
-                    "question_2": {"answer_2": {"value": "Bloqueado en TOP-1 por acceso a analytics"}},
+                    "compass_progress_0": {"progress_0": {"value": "TECH-12: avance a b y c"}},
+                    "compass_progress_1": {"progress_1": {"value": ""}},
+                    "compass_progress_2": {"progress_2": {"value": "TECH-3: la retomo hoy"}},
                 },
             )
 
         assert (synced, failures) == (2, [])
-        assert compass.post_comment.call_count == 2
-        first = compass.post_comment.call_args_list[0].args
-        second = compass.post_comment.call_args_list[1].args
-        assert first[0] == "TOP-1"
-        assert "• Ayer: Avancé TOP-1 con la matriz y revisé PRs" in first[1]
-        assert "• Bloqueo: Bloqueado en TOP-1 por acceso a analytics" in first[1]
-        assert "Hoy" not in first[1]
-        assert second[0] == "TOP-2"
-        assert "• Hoy: Hoy sigo TOP-2 en dashboards" in second[1]
-        assert "Ayer" not in second[1]
+        comments = {call.args[0]: call.args[1] for call in compass.post_comment.call_args_list}
+        assert set(comments) == {"TECH-12", "TECH-3"}
+        assert comments["TECH-12"] == "Actualización de Pulse:\nTECH-12: avance a b y c"
+        assert comments["TECH-3"] == "Actualización de Pulse:\nTECH-3: la retomo hoy"
 
-    def test_submission_without_ticket_mentions_posts_no_compass_comments(self, monkeypatch):
+    def test_submission_with_cleared_ticket_boxes_posts_no_compass_comments(self, monkeypatch):
         import handlers
 
         session = state.UserSession(
@@ -320,60 +317,7 @@ class TestSingleFormSubmission:
                     "question_0": {"answer_0": {"value": "Revisé PRs del equipo"}},
                     "question_1": {"answer_1": {"value": "Documentación interna"}},
                     "question_2": {"answer_2": {"value": "Sin bloqueos"}},
-                },
-            )
-
-        assert (synced, failures) == (0, [])
-        compass.post_comment.assert_not_called()
-
-    def test_submission_matches_keys_case_insensitively_and_without_hyphen(self, monkeypatch):
-        import handlers
-
-        session = state.UserSession(
-            cache_key="T1:U1",
-            team_id="T1",
-            channel="C1",
-            compass_tasks=[
-                {"key": "TECH-12", "title": "Taxonomia"},
-                {"key": "TECH-1", "title": "SigNoz"},
-            ],
-        )
-        compass = MagicMock()
-        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
-
-        with patch.object(handlers, "CompassClient", return_value=compass):
-            synced, failures = handlers._sync_compass_progress(
-                session,
-                {
-                    "question_0": {"answer_0": {"value": "Tech-12 avance a b y c"}},
-                    "question_1": {"answer_1": {"value": "tech1 dashboards"}},
-                    "question_2": {"answer_2": {"value": "Sin bloqueos"}},
-                },
-            )
-
-        assert (synced, failures) == (2, [])
-        commented = [call.args[0] for call in compass.post_comment.call_args_list]
-        assert commented == ["TECH-12", "TECH-1"]
-
-    def test_submission_does_not_confuse_techn_123_with_techn_12(self, monkeypatch):
-        import handlers
-
-        session = state.UserSession(
-            cache_key="T1:U1",
-            team_id="T1",
-            channel="C1",
-            compass_tasks=[{"key": "TECH-12", "title": "Taxonomia"}],
-        )
-        compass = MagicMock()
-        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
-
-        with patch.object(handlers, "CompassClient", return_value=compass):
-            synced, failures = handlers._sync_compass_progress(
-                session,
-                {
-                    "question_0": {"answer_0": {"value": "Avancé en TECH-123 todo el día"}},
-                    "question_1": {"answer_1": {"value": ""}},
-                    "question_2": {"answer_2": {"value": ""}},
+                    "compass_progress_0": {"progress_0": {"value": ""}},
                 },
             )
 

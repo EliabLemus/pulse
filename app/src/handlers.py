@@ -26,12 +26,11 @@ _daily_thread_cache: dict[str, str] = {}
 
 
 def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
-    """Comment on every session ticket mentioned in the DSU answers.
+    """Post one Compass comment per non-empty ticket box.
 
-    The three answers are scanned for the contributor's own ticket keys;
-    only mentioned tickets get a comment, containing the answers that
-    reference them (Ayer / Hoy / Bloqueo lines).  Tickets that go
-    unmentioned stay untouched, which reads as "not worked on today".
+    Each session ticket renders as an optional box pre-filled with
+    "KEY: "; a box left with content (or edited freely) comments its
+    ticket verbatim, and a cleared box stays silent (= not worked on).
     A failed comment is isolated to its task so the contributor's standup
     is still accepted and published.  This deliberately exposes no
     workflow-field mutation such as status, due date, priority, or
@@ -44,49 +43,22 @@ def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
 
     import blocks as _blocks  # noqa: PLC0415
 
-    answers = [
-        _blocks.rich_text_to_mrkdwn(field.get("rich_text_value"))
-        if field.get("rich_text_value")
-        else str(field.get("value", ""))
-        for block_id, action_id in (("question_0", "answer_0"), ("question_1", "answer_1"), ("question_2", "answer_2"))
-        if (field := values.get(block_id, {}).get(action_id, {}))
-    ]
-    labels = ("Ayer", "Hoy", "Bloqueo")
-    mentioned: dict[str, list[str]] = {}
-    keys = [str(task.get("key") or "").strip() for task in tasks]
-
-    def _key_variants(key: str) -> list[str]:
-        """Literal key plus a hyphen-optional spelling (TECH-1 ~ TECH1)."""
-        no_hyphen = key.replace("-", "")
-        return [key] if no_hyphen == key else [key, no_hyphen]
-
-    for answer, label in zip(answers, labels):
-        text = answer.strip()
-        if not text:
-            continue
-        for key in keys:
-            if not key:
-                continue
-            matched = any(
-                re.search(rf"(?<![A-Za-z0-9]){re.escape(variant)}(?![A-Za-z0-9])", text, re.IGNORECASE)
-                for variant in _key_variants(key)
-            )
-            if matched:
-                mentioned.setdefault(key, []).append(f"• {label}: {text}")
-
     client = CompassClient(api_key) if api_key else None
     synced = 0
     failures: list[str] = []
-    for key in keys:
-        lines = mentioned.get(key)
-        if not lines:
+    for i, task in enumerate(tasks):
+        key = str(task.get("key") or "").strip()
+        field = values.get(f"compass_progress_{i}", {}).get(f"progress_{i}", {})
+        rich_text = field.get("rich_text_value")
+        box = _blocks.rich_text_to_mrkdwn(rich_text) if rich_text else str(field.get("value", ""))
+        box = box.strip()
+        if not box:
             continue
-        if not client:
-            failures.append(key)
+        if not client or not key:
+            failures.append(key or f"tarea {i + 1}")
             continue
-        body = "Actualización de Pulse:\n" + "\n".join(lines)
         try:
-            client.post_comment(key, body)
+            client.post_comment(key, f"Actualización de Pulse:\n{box}")
             synced += 1
         except Exception:
             logger.warning("Could not post Pulse progress to Compass task %s", key)

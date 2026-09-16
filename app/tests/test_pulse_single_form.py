@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
-from blocks import standup_dm_message, standup_form_modal, standup_resume_message  # noqa: E402
+from blocks import mrkdwn_to_rich_text, standup_dm_message, standup_form_modal, standup_resume_message  # noqa: E402
 
 QUESTIONS = [
     "¿Qué lograste avanzar o completar ayer?",
@@ -78,16 +78,19 @@ def test_pulse_form_without_tasks_has_no_ticket_section():
     assert len(modal["blocks"]) == 3
 
 
-def test_pulse_form_references_tickets_with_links_but_has_no_per_ticket_inputs():
+def test_pulse_form_prefills_one_deletable_reference_box_per_ticket():
     modal = standup_form_modal(QUESTIONS, "Pulse TechOps Pilot", compass_tasks=TASKS)
 
-    assert [block["label"]["text"] for block in modal["blocks"] if block["type"] == "input"] == QUESTIONS
-    assert len(modal["blocks"]) == 4
-    context = modal["blocks"][0]
-    assert context.get("block_id") == "compass_context"
-    text = context["text"]["text"]
-    assert "Tus tickets Compass esta semana" in text
-    assert "<https://compass.zubale.com/tickets/TOP-1|TOP-1>" in text
-    assert "<https://compass.zubale.com/tickets/TOP-2|TOP-2>" in text
-    assert "Improve deployment" in text
-    assert not any(block.get("block_id", "").startswith("compass_progress_") for block in modal["blocks"])
+    assert len(modal["blocks"]) == 5
+    assert all(block.get("block_id") != "compass_context" for block in modal["blocks"])
+    boxes = [block for block in modal["blocks"] if block.get("block_id", "").startswith("compass_progress_")]
+    assert [(block["label"]["text"], block["optional"]) for block in boxes] == [
+        ("TOP-1 — Improve deployment", True),
+        ("TOP-2 — Review incident", True),
+    ]
+    assert [block["element"]["action_id"] for block in boxes] == ["progress_0", "progress_1"]
+    assert [block["element"]["initial_value"] for block in boxes] == [
+        mrkdwn_to_rich_text("TOP-1: "),
+        mrkdwn_to_rich_text("TOP-2: "),
+    ]
+    assert [block["label"]["text"] for block in modal["blocks"][-3:]] == QUESTIONS
