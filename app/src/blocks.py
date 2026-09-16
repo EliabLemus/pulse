@@ -825,22 +825,7 @@ def standup_form_modal(
     previous_answers = previous_answers or []
     compass_tasks = (compass_tasks or [])[:5]
     blocks: list[dict] = []
-    for i, task in enumerate(compass_tasks):
-        key = str(task.get("key") or "Sin clave")
-        title = str(task.get("title") or "Sin título")
-        blocks.append(
-            {
-                "type": "input",
-                "block_id": f"compass_progress_{i}",
-                "label": {"type": "plain_text", "text": f"{key} — {title}"},
-                "element": {
-                    "type": "rich_text_input",
-                    "action_id": f"progress_{i}",
-                    "initial_value": mrkdwn_to_rich_text(f"{key}: "),
-                },
-                "optional": True,
-            }
-        )
+    ticket_template = "\n".join(f"{task.get('key') or 'Sin clave'}: " for task in compass_tasks)
     for i, question in enumerate(questions):
         prev = previous_answers[i] if i < len(previous_answers) else ""
         element: dict = {
@@ -849,6 +834,8 @@ def standup_form_modal(
         }
         if prev:
             element["initial_value"] = mrkdwn_to_rich_text(prev)
+        elif ticket_template:
+            element["initial_value"] = mrkdwn_to_rich_text(ticket_template)
         blocks.append(
             {
                 "type": "input",

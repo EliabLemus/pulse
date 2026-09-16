@@ -26,15 +26,15 @@ _daily_thread_cache: dict[str, str] = {}
 
 
 def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
-    """Post one Compass comment per non-empty ticket box.
+    """Comment every ticket whose "KEY: " line has content.
 
-    Each session ticket renders as an optional box pre-filled with
-    "KEY: "; a box left with content (or edited freely) comments its
-    ticket verbatim, and a cleared box stays silent (= not worked on).
-    A failed comment is isolated to its task so the contributor's standup
-    is still accepted and published.  This deliberately exposes no
-    workflow-field mutation such as status, due date, priority, or
-    assignee.
+    The modal pre-fills the DSU answers with one "KEY: " line per
+    session ticket.  A line left empty stays silent; a line with text
+    after the key comments that ticket with just that line.  Deleting a
+    key's line is equivalent to leaving it empty.  A failed comment is
+    isolated to its ticket so the contributor's standup is still
+    accepted and published.  This deliberately exposes no workflow-field
+    mutation such as status, due date, priority, or assignee.
     """
     tasks = getattr(session, "compass_tasks", [])[:5]
     api_key = os.environ.get("COMPASS_API_KEY", "").strip()
@@ -43,22 +43,36 @@ def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
 
     import blocks as _blocks  # noqa: PLC0415
 
+    answers = [
+        _blocks.rich_text_to_mrkdwn(field.get("rich_text_value"))
+        if field.get("rich_text_value")
+        else str(field.get("value", ""))
+        for block_id, action_id in (("question_0", "answer_0"), ("question_1", "answer_1"), ("question_2", "answer_2"))
+        if (field := values.get(block_id, {}).get(action_id, {}))
+    ]
+
     client = CompassClient(api_key) if api_key else None
     synced = 0
     failures: list[str] = []
-    for i, task in enumerate(tasks):
+    for task in tasks:
         key = str(task.get("key") or "").strip()
-        field = values.get(f"compass_progress_{i}", {}).get(f"progress_{i}", {})
-        rich_text = field.get("rich_text_value")
-        box = _blocks.rich_text_to_mrkdwn(rich_text) if rich_text else str(field.get("value", ""))
-        box = box.strip()
-        if not box:
+        if not key:
             continue
-        if not client or not key:
-            failures.append(key or f"tarea {i + 1}")
+        lines: list[str] = []
+        for answer in answers:
+            for row in answer.splitlines():
+                stripped = row.strip()
+                if stripped.lower().startswith(f"{key.lower()}:"):
+                    content = stripped[len(key) + 1 :].strip()
+                    if content:
+                        lines.append(content)
+        if not lines:
+            continue
+        if not client:
+            failures.append(key)
             continue
         try:
-            client.post_comment(key, f"Actualización de Pulse:\n{box}")
+            client.post_comment(key, "Actualización de Pulse:\n" + "\n".join(lines))
             synced += 1
         except Exception:
             logger.warning("Could not post Pulse progress to Compass task %s", key)

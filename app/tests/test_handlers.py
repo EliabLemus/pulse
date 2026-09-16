@@ -227,9 +227,8 @@ class TestSingleFormSubmission:
             _action_handler("fill_in_form")(MagicMock(), body, client)
 
         view = client.views_open.call_args.kwargs["view"]
-        box = next(block for block in view["blocks"] if block.get("block_id") == "compass_progress_0")
-        assert box["element"]["initial_value"] == mrkdwn_to_rich_text("TOP-1: ")
-        assert box["optional"] is True
+        expected = mrkdwn_to_rich_text("TOP-1: ")
+        assert [block["element"]["initial_value"] for block in view["blocks"]] == [expected, expected, expected]
 
     def test_form_submission_syncs_progress_before_completing_the_standup(self):
         import handlers
@@ -266,7 +265,7 @@ class TestSingleFormSubmission:
         sync.assert_called_once_with(fresh, values)
         complete.assert_called_once_with("U1", fresh, client)
 
-    def test_submission_comments_every_filled_ticket_box(self, monkeypatch):
+    def test_submission_comments_tickets_with_content_after_their_key_line(self, monkeypatch):
         import handlers
 
         session = state.UserSession(
@@ -286,19 +285,19 @@ class TestSingleFormSubmission:
             synced, failures = handlers._sync_compass_progress(
                 session,
                 {
-                    "compass_progress_0": {"progress_0": {"value": "TECH-12: avance a b y c"}},
-                    "compass_progress_1": {"progress_1": {"value": ""}},
-                    "compass_progress_2": {"progress_2": {"value": "TECH-3: la retomo hoy"}},
+                    "question_0": {"answer_0": {"value": "TECH-12: avance a b y c\nTECH-1: \nTECH-3: "}},
+                    "question_1": {"answer_1": {"value": "TECH-12: \nTECH-1: sigo dashboards\nTECH-3: "}},
+                    "question_2": {"answer_2": {"value": "TECH-3 bloqueado por accesos (sin plantilla)"}},
                 },
             )
 
         assert (synced, failures) == (2, [])
         comments = {call.args[0]: call.args[1] for call in compass.post_comment.call_args_list}
-        assert set(comments) == {"TECH-12", "TECH-3"}
-        assert comments["TECH-12"] == "Actualización de Pulse:\nTECH-12: avance a b y c"
-        assert comments["TECH-3"] == "Actualización de Pulse:\nTECH-3: la retomo hoy"
+        assert set(comments) == {"TECH-12", "TECH-1"}
+        assert comments["TECH-12"] == "Actualización de Pulse:\navance a b y c"
+        assert comments["TECH-1"] == "Actualización de Pulse:\nsigo dashboards"
 
-    def test_submission_with_cleared_ticket_boxes_posts_no_compass_comments(self, monkeypatch):
+    def test_submission_with_cleared_templates_posts_no_compass_comments(self, monkeypatch):
         import handlers
 
         session = state.UserSession(
@@ -317,7 +316,6 @@ class TestSingleFormSubmission:
                     "question_0": {"answer_0": {"value": "Revisé PRs del equipo"}},
                     "question_1": {"answer_1": {"value": "Documentación interna"}},
                     "question_2": {"answer_2": {"value": "Sin bloqueos"}},
-                    "compass_progress_0": {"progress_0": {"value": ""}},
                 },
             )
 

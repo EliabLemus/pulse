@@ -71,26 +71,22 @@ def test_pulse_form_has_exactly_the_three_dsu_questions():
     assert len(modal["blocks"]) == 3
 
 
-def test_pulse_form_without_tasks_has_no_ticket_section():
+def test_pulse_form_without_tasks_has_no_template():
     modal = standup_form_modal(QUESTIONS, "Pulse TechOps Pilot", compass_tasks=[])
 
-    assert all(block.get("block_id") != "compass_context" for block in modal["blocks"])
     assert len(modal["blocks"]) == 3
+    assert all("initial_value" not in block["element"] for block in modal["blocks"])
 
 
-def test_pulse_form_prefills_one_deletable_reference_box_per_ticket():
-    modal = standup_form_modal(QUESTIONS, "Pulse TechOps Pilot", compass_tasks=TASKS)
+def test_pulse_form_templates_the_three_questions_with_ticket_keys():
+    modal = standup_form_modal(
+        QUESTIONS,
+        "Pulse TechOps Pilot",
+        compass_tasks=[{"key": "TECH-12", "title": "Taxonomia"}, {"key": "TECH-1", "title": "SigNoz"}],
+    )
 
-    assert len(modal["blocks"]) == 5
-    assert all(block.get("block_id") != "compass_context" for block in modal["blocks"])
-    boxes = [block for block in modal["blocks"] if block.get("block_id", "").startswith("compass_progress_")]
-    assert [(block["label"]["text"], block["optional"]) for block in boxes] == [
-        ("TOP-1 — Improve deployment", True),
-        ("TOP-2 — Review incident", True),
-    ]
-    assert [block["element"]["action_id"] for block in boxes] == ["progress_0", "progress_1"]
-    assert [block["element"]["initial_value"] for block in boxes] == [
-        mrkdwn_to_rich_text("TOP-1: "),
-        mrkdwn_to_rich_text("TOP-2: "),
-    ]
-    assert [block["label"]["text"] for block in modal["blocks"][-3:]] == QUESTIONS
+    assert [block["type"] for block in modal["blocks"]] == ["input", "input", "input"]
+    assert [block["label"]["text"] for block in modal["blocks"]] == QUESTIONS
+    assert not any(block.get("block_id", "").startswith("compass_progress_") for block in modal["blocks"])
+    template = mrkdwn_to_rich_text("TECH-12: \nTECH-1: ")
+    assert [block["element"]["initial_value"] for block in modal["blocks"]] == [template, template, template]
