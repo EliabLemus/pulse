@@ -89,8 +89,8 @@ def test_pulse_form_keeps_compass_tasks_and_adds_optional_progress_inputs():
         ],
     )
 
-    compass_context = next(block for block in modal["blocks"] if block.get("block_id") == "compass_context")
-    assert "Compass · tareas con fecha esta semana" in compass_context["text"]["text"]
+    compass_context = [block for block in modal["blocks"] if block.get("block_id") == "compass_context"]
+    assert compass_context == []
     progress_blocks = [block for block in modal["blocks"] if block.get("block_id", "").startswith("compass_progress_")]
     assert [(block["label"]["text"], block["optional"]) for block in progress_blocks] == [
         ("TOP-1 — Improve deployment", True),

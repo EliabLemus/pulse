@@ -225,7 +225,7 @@ class TestSingleFormSubmission:
             _action_handler("fill_in_form")(MagicMock(), body, client)
 
         view = client.views_open.call_args.kwargs["view"]
-        assert any(block.get("block_id") == "compass_context" for block in view["blocks"])
+        assert not any(block.get("block_id") == "compass_context" for block in view["blocks"])
         assert any(block.get("block_id") == "compass_progress_0" for block in view["blocks"])
 
     def test_submission_syncs_only_nonempty_progress_to_matching_compass_task(self, monkeypatch):
