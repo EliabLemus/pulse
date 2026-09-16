@@ -1,0 +1,15 @@
+"""Static safety checks for Compass runtime secret wiring."""
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_deploy_reads_compass_key_from_host_keychain_without_env_file_persistence():
+    deploy_script = (ROOT / "deploy" / "deploy-techops.sh").read_text()
+    compose = (ROOT / "deploy" / "docker-compose.techops.yml").read_text()
+
+    assert "security find-generic-password -s 'Compass MCP API key' -w" in deploy_script
+    assert "COMPASS_API_KEY" in compose
+    assert "COMPASS_TEAM: ${COMPASS_TEAM:-techops}" in compose
+    assert "deploy/.env.techops" not in deploy_script

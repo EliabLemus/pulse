@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
 from blocks import standup_dm_message, standup_form_modal, standup_resume_message
 
-
 QUESTIONS = [
     "¿Qué lograste avanzar o completar ayer?",
     "¿Cuál es tu tarea principal para hoy?",
@@ -28,6 +27,24 @@ def test_pulse_dm_is_a_single_form_entrypoint_not_a_first_question():
     ]
     assert not any(block.get("block_id") == "first_question" for block in blocks)
     assert "formulario" in blocks[1]["text"]["text"].lower()
+
+
+def test_pulse_dm_shows_only_the_recipient_compass_tasks_without_changing_form_entrypoint():
+    message = standup_dm_message(
+        QUESTIONS,
+        "Pulse TechOps Pilot",
+        compass_tasks=[
+            {"key": "TOP-1", "title": "Improve deployment", "status": "active", "dueDate": "2026-09-15"},
+            {"key": "TOP-2", "title": "Review incident", "status": "todo", "dueDate": "2026-09-18"},
+        ],
+    )
+
+    context = next(block for block in message["blocks"] if block.get("block_id") == "compass_context")
+    text = context["text"]["text"]
+    assert "Compass · tareas con fecha esta semana" in text
+    assert "TOP-1 — Improve deployment" in text
+    assert "TOP-2 — Review incident" in text
+    assert len(standup_form_modal(QUESTIONS, "Pulse TechOps Pilot")["blocks"]) == 3
 
 
 def test_pulse_skip_confirm_mentions_the_recovery_path():
@@ -49,9 +66,7 @@ def test_pulse_skip_confirmation_message_offers_the_resume_button():
     blocks = message["blocks"]
 
     buttons = [e for b in blocks if b["type"] == "actions" for e in b["elements"]]
-    assert ("resume_standup", "Completar mi update") in [
-        (e["action_id"], e["text"]["text"]) for e in buttons
-    ]
+    assert ("resume_standup", "Completar mi update") in [(e["action_id"], e["text"]["text"]) for e in buttons]
     assert any(e.get("style") == "primary" for e in buttons)
 
 

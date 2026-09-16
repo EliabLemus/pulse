@@ -37,6 +37,8 @@ services:
       PULSE_PARTICIPANT_NAME: ${PULSE_PARTICIPANT_NAME:-Eliab}
       PULSE_CHANNEL_ID: ${PULSE_CHANNEL_ID:?set PULSE_CHANNEL_ID in .env.techops}
       PULSE_MANAGER_ID: ${PULSE_MANAGER_ID:?set PULSE_MANAGER_ID in .env.techops}
+      COMPASS_API_KEY: ${COMPASS_API_KEY:?missing Compass MCP API key in host Keychain}
+      COMPASS_TEAM: ${COMPASS_TEAM:-techops}
     depends_on:
       db:
         condition: service_healthy

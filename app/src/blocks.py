@@ -696,27 +696,46 @@ def create_standup_modal(existing_config: dict | None = None, bot_channels: list
 # ---------------------------------------------------------------------------
 
 
-def standup_dm_message(questions: list[str], standup_name: str) -> dict:
+def standup_dm_message(
+    questions: list[str],
+    standup_name: str,
+    compass_tasks: list[dict] | None = None,
+) -> dict:
     """DM entrypoint for the one-form standup capture."""
-    return {
-        "blocks": [
-            {
-                "type": "header",
-                "block_id": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"🟢 {standup_name}",
-                    "emoji": True,
-                },
+    blocks = [
+        {
+            "type": "header",
+            "block_id": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"🟢 {standup_name}",
+                "emoji": True,
             },
+        },
+        {
+            "type": "section",
+            "block_id": "intro",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Completa tu update diario en un solo formulario. Al enviarlo, Pulse lo publicará automáticamente al equipo.",
+            },
+        },
+    ]
+    if compass_tasks:
+        lines = ["*Compass · tareas con fecha esta semana*"]
+        for task in compass_tasks:
+            key = str(task.get("key") or "Sin clave")
+            title = str(task.get("title") or "Sin título")
+            lines.append(f"• {key} — {title}")
+        blocks.append(
             {
                 "type": "section",
-                "block_id": "intro",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "Completa tu update diario en un solo formulario. Al enviarlo, Pulse lo publicará automáticamente al equipo.",
-                },
-            },
+                "block_id": "compass_context",
+                "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+            }
+        )
+    blocks.extend(
+        [
             {"type": "divider"},
             {
                 "type": "actions",
@@ -754,7 +773,8 @@ def standup_dm_message(questions: list[str], standup_name: str) -> dict:
                 ],
             },
         ]
-    }
+    )
+    return {"blocks": blocks}
 
 
 def standup_resume_message() -> dict:

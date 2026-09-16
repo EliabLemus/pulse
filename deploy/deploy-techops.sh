@@ -41,6 +41,11 @@ fi
 [[ "$APP_URL" == https://* && "$APP_URL" != */ ]] || { printf 'APP_URL must be an HTTPS base URL without a trailing slash\n' >&2; exit 2; }
 [[ "$DATABASE_URL" != *'***'* && "$DATABASE_URL" != *"$PULSE_DB_PASSWORD"* ]] && { printf 'DATABASE_URL does not contain the configured database password\n' >&2; exit 2; }
 
+COMPASS_API_KEY="$(security find-generic-password -s 'Compass MCP API key' -w)"
+[[ "$COMPASS_API_KEY" == cmp_* ]] || { printf 'Invalid Compass MCP API key in host Keychain\n' >&2; exit 2; }
+export COMPASS_API_KEY
+export COMPASS_TEAM="${COMPASS_TEAM:-techops}"
+
 compose=(docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --build db

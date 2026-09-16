@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from compass import CompassClient
 from schedule_validation import schedule_config_error
 from slack_sdk import WebClient
 from slack_users import (
@@ -291,9 +292,39 @@ def _notify_delivery_failure(client: WebClient, channel_id: str, failed_count: i
         logger.warning("Could not post delivery failure notice to %s: %s", channel_id, exc)
 
 
+def _compass_context_for_members(
+    members: list[dict],
+    schedule: dict,
+    *,
+    now: datetime | None = None,
+) -> dict[str, list[dict]]:
+    """Return optional, private Compass context keyed by normalized member email."""
+    api_key = os.environ.get("COMPASS_API_KEY", "").strip()
+    if not api_key:
+        return {}
+    emails = [member.get("email", "") for member in members]
+    timezone_name = schedule.get("schedule_tz") or "UTC"
+    try:
+        local_day = (now or datetime.now(tz=timezone.utc)).astimezone(pytz.timezone(timezone_name)).date()
+        assignments = CompassClient(api_key).weekly_assignments(
+            emails,
+            team=os.environ.get("COMPASS_TEAM", "techops"),
+            local_day=local_day,
+        )
+        for email in emails:
+            normalized_email = str(email).strip().lower()
+            if normalized_email:
+                assignments.setdefault(normalized_email, [])
+        return assignments
+    except Exception:
+        logger.warning("Compass context unavailable; continuing Pulse delivery without it")
+        return {}
+
+
 def _send_standup_to_workspace(team_id: str, bot_token: str, channel_id: str, schedule_id: int | None = None) -> None:
     """DM participants of a standup schedule (or all active members if no schedule)."""
     bot_token = _fresh_bot_token(team_id, bot_token)
+    schedule: dict | None = None
     try:
         import db  # noqa: PLC0415
 
@@ -338,6 +369,7 @@ def _send_standup_to_workspace(team_id: str, bot_token: str, channel_id: str, sc
         return
 
     logger.info("Triggering standup for team %s (%d members)", team_id, len(members))
+    compass_context = _compass_context_for_members(members, schedule or {}) if schedule_id else {}
 
     # Verify bot token is still valid before DMing members. If the token is stale,
     # force-refresh once and retry with the new token before giving up.
@@ -431,7 +463,11 @@ def _send_standup_to_workspace(team_id: str, bot_token: str, channel_id: str, sc
                 "What are you working on today?",
                 "Any blockers?",
             ]
-            dm_msg = standup_dm_message(default_questions, standup_name)
+            dm_msg = standup_dm_message(
+                default_questions,
+                standup_name,
+                compass_tasks=compass_context.get(str(member.get("email", "")).strip().lower()),
+            )
             _slack_dm_with_retry(
                 client, user_id, team_id=team_id, text=f"🌅 Time for your standup! — {standup_name}", **dm_msg
             )
