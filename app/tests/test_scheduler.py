@@ -5,7 +5,10 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
+
+import pytz
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
@@ -88,6 +91,73 @@ class _SyncTestBase:
     def sync(self, db):
         with patch.dict(sys.modules, {"db": db}):
             sched_mod._sync_jobs_from_db()
+
+
+def test_compass_context_is_built_once_for_schedule_members_and_uses_schedule_timezone(monkeypatch):
+    client = MagicMock()
+    client.weekly_assignments.return_value = {"alice@zubale.com": [{"key": "TOP-1"}]}
+    monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+    monkeypatch.setattr(sched_mod, "CompassClient", lambda _: client)
+
+    context = sched_mod._compass_context_for_members(
+        [{"email": "ALICE@zubale.com"}, {"email": "bob@zubale.com"}],
+        {"schedule_tz": "America/Guatemala"},
+        now=datetime(2026, 9, 15, 15, tzinfo=timezone.utc),
+    )
+
+    assert context == {"alice@zubale.com": [{"key": "TOP-1"}], "bob@zubale.com": []}
+    client.weekly_assignments.assert_called_once_with(
+        ["ALICE@zubale.com", "bob@zubale.com"],
+        team="techops",
+        local_day=datetime(2026, 9, 15, 9, tzinfo=pytz.timezone("America/Guatemala")).date(),
+    )
+
+
+def test_compass_context_failure_is_non_blocking(monkeypatch):
+    client = MagicMock()
+    client.weekly_assignments.side_effect = RuntimeError("unavailable")
+    monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+    monkeypatch.setattr(sched_mod, "CompassClient", lambda _: client)
+
+    assert sched_mod._compass_context_for_members([{"email": "alice@zubale.com"}], {"schedule_tz": "UTC"}) == {}
+
+
+def test_scheduled_dm_preserves_recipient_compass_tasks_in_the_active_session(monkeypatch):
+    db = MagicMock()
+    db.get_standup_schedule.return_value = _schedule_row(
+        active=True,
+        questions=["Q1", "Q2", "Q3"],
+        participants=[],
+    )
+    db.get_active_members.return_value = [{"user_id": "U1", "email": "alice@zubale.com"}]
+    db.is_skipped_today.return_value = False
+    db.is_on_vacation.return_value = False
+    client = MagicMock()
+    client.auth_test.return_value = {"ok": True}
+    starts: list[dict] = []
+
+    monkeypatch.setattr(sched_mod, "_fresh_bot_token", lambda _team, token: token)
+    monkeypatch.setattr(sched_mod, "WebClient", lambda token: client)
+    monkeypatch.setattr(
+        sched_mod,
+        "_compass_context_for_members",
+        lambda _members, _schedule: {"alice@zubale.com": [{"key": "TOP-1", "title": "Improve deployment"}]},
+    )
+    monkeypatch.setattr(sched_mod.state_store, "is_active", lambda _key: False)
+    monkeypatch.setattr(sched_mod.state_store, "start", lambda *_args, **kwargs: starts.append(kwargs))
+
+    with patch.dict(sys.modules, {"db": db}):
+        sched_mod._send_standup_to_workspace("T1", "xoxb-test", "C1", schedule_id=1)
+
+    assert starts == [
+        {
+            "team_id": "T1",
+            "questions": ["Q1", "Q2", "Q3"],
+            "standup_name": "Morning Standup",
+            "schedule_id": 1,
+            "compass_tasks": [{"key": "TOP-1", "title": "Improve deployment"}],
+        }
+    ]
 
 
 class TestSyncRegistersNewSchedules(_SyncTestBase):

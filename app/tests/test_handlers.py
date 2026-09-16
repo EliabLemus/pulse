@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
+from blocks import mrkdwn_to_rich_text  # noqa: E402
+
 # Stub heavy third-party deps before any import of handlers
 _slack_bolt_mock = MagicMock()
 _requests_mock = MagicMock()
@@ -170,9 +172,7 @@ class TestSingleFormSubmission:
     def test_form_submission_completes_after_three_answers_without_mood(self):
         import handlers
 
-        session = state.UserSession(
-            cache_key="T1:U1", team_id="T1", channel="C1", questions=["Q1", "Q2", "Q3"]
-        )
+        session = state.UserSession(cache_key="T1:U1", team_id="T1", channel="C1", questions=["Q1", "Q2", "Q3"])
         fresh = state.UserSession(
             cache_key="T1:U1",
             team_id="T1",
@@ -209,6 +209,154 @@ class TestSingleFormSubmission:
         replace_answers.assert_called_once_with("T1:U1", ["ayer", "hoy", "sin bloqueos"])
         complete.assert_called_once_with("U1", fresh, client)
         send_mood.assert_not_called()
+
+    def test_fill_in_form_renders_progress_inputs_for_the_session_compass_tasks(self):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Q1", "Q2", "Q3"],
+            compass_tasks=[{"key": "TOP-1", "title": "Improve deployment"}],
+        )
+        body = {"user": {"id": "U1"}, "team": {"id": "T1"}, "trigger_id": "tr-1"}
+        client = MagicMock()
+
+        with patch.object(handlers.state_store, "get", return_value=session):
+            _action_handler("fill_in_form")(MagicMock(), body, client)
+
+        view = client.views_open.call_args.kwargs["view"]
+        context = next(block for block in view["blocks"] if block.get("block_id") == "compass_context")
+        assert "<https://compass.zubale.com/tickets/TOP-1|TOP-1>" in context["text"]["text"]
+        expected = mrkdwn_to_rich_text("TOP-1: ")
+        assert [block["element"]["initial_value"] for block in view["blocks"] if block["type"] == "input"] == [
+            expected,
+            expected,
+            expected,
+        ]
+
+    def test_form_submission_syncs_progress_before_completing_the_standup(self):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Q1", "Q2", "Q3"],
+            compass_tasks=[{"key": "TOP-1", "title": "Improve deployment"}],
+        )
+        fresh = state.UserSession(cache_key="T1:U1", team_id="T1", channel="C1", questions=["Q1", "Q2", "Q3"])
+        values = {
+            "question_0": {"answer_0": {"value": "ayer"}},
+            "question_1": {"answer_1": {"value": "hoy"}},
+            "question_2": {"answer_2": {"value": "sin bloqueos"}},
+            "compass_progress_0": {"progress_0": {"value": "Listo para revisión."}},
+        }
+        body = {
+            "user": {"id": "U1"},
+            "team": {"id": "T1"},
+            "view": {"private_metadata": "T1:U1", "state": {"values": values}},
+        }
+        client = MagicMock()
+
+        with (
+            patch.object(handlers.state_store, "get", return_value=session),
+            patch.object(handlers.state_store, "replace_answers", return_value=fresh),
+            patch.object(handlers, "_sync_compass_progress", return_value=(1, [])) as sync,
+            patch.object(handlers, "_complete_standup") as complete,
+        ):
+            _standup_form_handler()(MagicMock(), body, client)
+
+        sync.assert_called_once_with(fresh, values)
+        complete.assert_called_once_with("U1", fresh, client)
+
+    def test_submission_comments_tickets_with_content_after_their_key_line(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            compass_tasks=[
+                {"key": "TECH-12", "title": "Taxonomia"},
+                {"key": "TECH-1", "title": "SigNoz"},
+                {"key": "TECH-3", "title": "Onboarding"},
+            ],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            synced, failures = handlers._sync_compass_progress(
+                session,
+                {
+                    "question_0": {"answer_0": {"value": "TECH-12: avance a b y c\nTECH-1: \nTECH-3: "}},
+                    "question_1": {"answer_1": {"value": "TECH-12: \nTECH-1: sigo dashboards\nTECH-3: "}},
+                    "question_2": {"answer_2": {"value": "TECH-3 bloqueado por accesos (sin plantilla)"}},
+                },
+            )
+
+        assert (synced, failures) == (2, [])
+        comments = {call.args[0]: call.args[1] for call in compass.post_comment.call_args_list}
+        assert set(comments) == {"TECH-12", "TECH-1"}
+        assert comments["TECH-12"] == "Actualización de Pulse:\navance a b y c"
+        assert comments["TECH-1"] == "Actualización de Pulse:\nsigo dashboards"
+
+    def test_submission_with_cleared_templates_posts_no_compass_comments(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            compass_tasks=[{"key": "TOP-1", "title": "Improve deployment"}],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            synced, failures = handlers._sync_compass_progress(
+                session,
+                {
+                    "question_0": {"answer_0": {"value": "Revisé PRs del equipo"}},
+                    "question_1": {"answer_1": {"value": "Documentación interna"}},
+                    "question_2": {"answer_2": {"value": "Sin bloqueos"}},
+                },
+            )
+
+        assert (synced, failures) == (0, [])
+        compass.post_comment.assert_not_called()
+
+    def test_form_submission_completes_and_reports_compass_failures(self):
+        import handlers
+
+        session = state.UserSession(cache_key="T1:U1", team_id="T1", channel="C1", questions=["Q1", "Q2", "Q3"])
+        values = {
+            "question_0": {"answer_0": {"value": "ayer"}},
+            "question_1": {"answer_1": {"value": "hoy"}},
+            "question_2": {"answer_2": {"value": "sin bloqueos"}},
+        }
+        body = {
+            "user": {"id": "U1"},
+            "team": {"id": "T1"},
+            "view": {"private_metadata": "T1:U1", "state": {"values": values}},
+        }
+        client = MagicMock()
+
+        with (
+            patch.object(handlers.state_store, "get", return_value=session),
+            patch.object(handlers.state_store, "replace_answers", return_value=session),
+            patch.object(handlers, "_sync_compass_progress", return_value=(0, ["TOP-1"])),
+            patch.object(handlers, "_complete_standup") as complete,
+        ):
+            _standup_form_handler()(MagicMock(), body, client)
+
+        complete.assert_called_once_with("U1", session, client)
+        assert (
+            client.chat_postMessage.call_args.kwargs["text"]
+            == "Tu update se publicó, pero no pude actualizar Compass para: TOP-1"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +398,6 @@ class TestRecoverableSkip:
         }
 
     def test_skip_confirmation_offers_a_recovery_button(self):
-        import handlers
 
         client = MagicMock()
         db_mock = MagicMock()
@@ -374,9 +521,7 @@ class TestSingleFormEdit:
             patch.object(handlers.state_store, "start", side_effect=fake_start),
             patch.object(handlers, "_send_question_block") as send_question,
         ):
-            _action_handler("standup_edit")(
-                ack=MagicMock(), body=body, say=MagicMock(), client=client
-            )
+            _action_handler("standup_edit")(ack=MagicMock(), body=body, say=MagicMock(), client=client)
 
         assert started["kwargs"]["editing_standup_id"] == 42
         send_question.assert_not_called()
@@ -453,11 +598,7 @@ class TestSingleFormEdit:
             handlers._complete_standup("U1", self._edit_session(), client)
 
         client.chat_update.assert_not_called()
-        thread_reply = next(
-            c
-            for c in client.chat_postMessage.call_args_list
-            if c.kwargs.get("thread_ts") == "999.888"
-        )
+        thread_reply = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts") == "999.888")
         assert "✏️" in thread_reply.kwargs["text"]
 
     def test_edit_falls_back_to_thread_reply_when_update_fails(self):
@@ -474,11 +615,7 @@ class TestSingleFormEdit:
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", self._edit_session(), client)
 
-        thread_reply = next(
-            c
-            for c in client.chat_postMessage.call_args_list
-            if c.kwargs.get("thread_ts") == "999.888"
-        )
+        thread_reply = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts") == "999.888")
         assert "✏️" in thread_reply.kwargs["text"]
 
     def test_blocker_escalation_is_appended_after_the_update(self):

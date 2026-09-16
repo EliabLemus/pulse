@@ -5,6 +5,7 @@ This script intentionally uses only environment variables and PostgreSQL. It
 never calls Slack and never prints credentials. Run it through the Compose
 ``seed`` profile after migrations finish.
 """
+
 from __future__ import annotations
 
 import json
@@ -62,7 +63,7 @@ def _seed(cursor: Any, env: Mapping[str, str]) -> None:
         SCHEDULE_NAME,
         "09:15",
         "America/Guatemala",
-        "mon,tue,wed,thu",
+        "mon,tue,wed,thu,fri",
         json.dumps(QUESTIONS),
         [participant_id],
         env["PULSE_CHANNEL_ID"].strip(),

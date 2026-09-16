@@ -6,12 +6,14 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
 
 import pytz
 import requests
+from compass import CompassClient
 from schedule_validation import schedule_time_error, schedule_timezone_error
 from slack_bolt import App
 from slack_users import filter_human_ids, is_human
@@ -21,6 +23,61 @@ logger = logging.getLogger(__name__)
 
 # Cache daily thread parent message ts per channel: "team:channel:YYYY-MM-DD" -> ts
 _daily_thread_cache: dict[str, str] = {}
+
+
+def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
+    """Comment every ticket whose "KEY: " line has content.
+
+    The modal pre-fills the DSU answers with one "KEY: " line per
+    session ticket.  A line left empty stays silent; a line with text
+    after the key comments that ticket with just that line.  Deleting a
+    key's line is equivalent to leaving it empty.  A failed comment is
+    isolated to its ticket so the contributor's standup is still
+    accepted and published.  This deliberately exposes no workflow-field
+    mutation such as status, due date, priority, or assignee.
+    """
+    tasks = getattr(session, "compass_tasks", [])[:5]
+    api_key = os.environ.get("COMPASS_API_KEY", "").strip()
+    if not tasks:
+        return 0, []
+
+    import blocks as _blocks  # noqa: PLC0415
+
+    answers = [
+        _blocks.rich_text_to_mrkdwn(field.get("rich_text_value"))
+        if field.get("rich_text_value")
+        else str(field.get("value", ""))
+        for block_id, action_id in (("question_0", "answer_0"), ("question_1", "answer_1"), ("question_2", "answer_2"))
+        if (field := values.get(block_id, {}).get(action_id, {}))
+    ]
+
+    client = CompassClient(api_key) if api_key else None
+    synced = 0
+    failures: list[str] = []
+    for task in tasks:
+        key = str(task.get("key") or "").strip()
+        if not key:
+            continue
+        lines: list[str] = []
+        for answer in answers:
+            for row in answer.splitlines():
+                stripped = row.strip()
+                if stripped.lower().startswith(f"{key.lower()}:"):
+                    content = stripped[len(key) + 1 :].strip()
+                    if content:
+                        lines.append(content)
+        if not lines:
+            continue
+        if not client:
+            failures.append(key)
+            continue
+        try:
+            client.post_comment(key, "Actualización de Pulse:\n" + "\n".join(lines))
+            synced += 1
+        except Exception:
+            logger.warning("Could not post Pulse progress to Compass task %s", key)
+            failures.append(key)
+    return synced, failures
 
 
 def _clean_thread_cache() -> None:
@@ -1114,7 +1171,10 @@ def register_handlers(app: App) -> None:
             logger.warning("fill_in_form: could not load previous answers: %s", e)
 
         modal = _blocks.standup_form_modal(
-            session.questions, session.standup_name or "Standup", previous_answers=previous_answers
+            session.questions,
+            session.standup_name or "Standup",
+            previous_answers=previous_answers,
+            compass_tasks=session.compass_tasks,
         )
         modal["private_metadata"] = cache_key
         client.views_open(trigger_id=body["trigger_id"], view=modal)
@@ -1827,8 +1887,20 @@ def register_handlers(app: App) -> None:
             )
             return
 
+        synced_count, failed_task_keys = _sync_compass_progress(session, values)
+
         # A single submitted form is the complete standup; do not collect mood.
         _complete_standup(user_id, session, client)
+        if failed_task_keys:
+            client.chat_postMessage(
+                channel=user_id,
+                text="Tu update se publicó, pero no pude actualizar Compass para: " + ", ".join(failed_task_keys),
+            )
+        elif synced_count:
+            client.chat_postMessage(
+                channel=user_id,
+                text=f"Compass actualizado en {synced_count} tarea{'s' if synced_count != 1 else ''}.",
+            )
 
     @app.action("standup_edit")
     def handle_standup_edit(ack, body, say, client):  # noqa: ANN001

@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from compass import ticket_url
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -696,27 +698,46 @@ def create_standup_modal(existing_config: dict | None = None, bot_channels: list
 # ---------------------------------------------------------------------------
 
 
-def standup_dm_message(questions: list[str], standup_name: str) -> dict:
+def standup_dm_message(
+    questions: list[str],
+    standup_name: str,
+    compass_tasks: list[dict] | None = None,
+) -> dict:
     """DM entrypoint for the one-form standup capture."""
-    return {
-        "blocks": [
-            {
-                "type": "header",
-                "block_id": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"🟢 {standup_name}",
-                    "emoji": True,
-                },
+    blocks = [
+        {
+            "type": "header",
+            "block_id": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"🟢 {standup_name}",
+                "emoji": True,
             },
+        },
+        {
+            "type": "section",
+            "block_id": "intro",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Completa tu update diario en un solo formulario. Al enviarlo, Pulse lo publicará automáticamente al equipo.",
+            },
+        },
+    ]
+    if compass_tasks:
+        lines = ["*Compass · tareas con fecha esta semana*"]
+        for task in compass_tasks:
+            key = str(task.get("key") or "Sin clave")
+            title = str(task.get("title") or "Sin título")
+            lines.append(f"• {key} — {title}")
+        blocks.append(
             {
                 "type": "section",
-                "block_id": "intro",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "Completa tu update diario en un solo formulario. Al enviarlo, Pulse lo publicará automáticamente al equipo.",
-                },
-            },
+                "block_id": "compass_context",
+                "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+            }
+        )
+    blocks.extend(
+        [
             {"type": "divider"},
             {
                 "type": "actions",
@@ -754,7 +775,8 @@ def standup_dm_message(questions: list[str], standup_name: str) -> dict:
                 ],
             },
         ]
-    }
+    )
+    return {"blocks": blocks}
 
 
 def standup_resume_message() -> dict:
@@ -789,14 +811,37 @@ def standup_resume_message() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def standup_form_modal(questions: list[str], standup_name: str, previous_answers: list[str] | None = None) -> dict:
+def standup_form_modal(
+    questions: list[str],
+    standup_name: str,
+    previous_answers: list[str] | None = None,
+    compass_tasks: list[dict] | None = None,
+) -> dict:
     """Modal opened when user clicks 'Fill in form'.
 
     If *previous_answers* is provided, the corresponding fields are
-    pre-filled so the user can quickly update rather than retype.
+    pre-filled so the user can quickly update rather than retype.  Compass
+    tasks retain the private context from the DM and offer optional progress
+    fields; submission syncs non-empty values back to Compass.
     """
     previous_answers = previous_answers or []
-    blocks = []
+    compass_tasks = (compass_tasks or [])[:5]
+    blocks: list[dict] = []
+    ticket_template = "\n".join(f"{task.get('key') or 'Sin clave'}: " for task in compass_tasks)
+    if compass_tasks:
+        task_lines = ["*Tus tickets Compass esta semana*"]
+        for task in compass_tasks:
+            key = str(task.get("key") or "").strip()
+            title = str(task.get("title") or "Sin título")
+            label = f"<{ticket_url(key)}|{key}>" if key else "Sin clave"
+            task_lines.append(f"• {label} — {title}")
+        blocks.append(
+            {
+                "type": "section",
+                "block_id": "compass_context",
+                "text": {"type": "mrkdwn", "text": "\n".join(task_lines)},
+            }
+        )
     for i, question in enumerate(questions):
         prev = previous_answers[i] if i < len(previous_answers) else ""
         element: dict = {
@@ -805,6 +850,8 @@ def standup_form_modal(questions: list[str], standup_name: str, previous_answers
         }
         if prev:
             element["initial_value"] = mrkdwn_to_rich_text(prev)
+        elif ticket_template:
+            element["initial_value"] = mrkdwn_to_rich_text(ticket_template)
         blocks.append(
             {
                 "type": "input",
