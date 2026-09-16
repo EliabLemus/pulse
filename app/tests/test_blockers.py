@@ -44,6 +44,7 @@ class TestRealProductionValues:
     def test_a_trailing_qualifier_does_not_change_the_answer(self):
         for value in ["nothing for now", "• nothing for now", "none as of now", "No blockers today"]:
             assert reports_a_blocker(value) is False, value
+
     def test_spanish_no_blocker_answers_are_not_blockers(self):
         for value in ["nada", "sin bloqueos", "sin bloqueo", "ninguno", "ninguna"]:
             assert reports_a_blocker(value) is False, value
