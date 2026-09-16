@@ -17,6 +17,19 @@ services:
       retries: 12
       start_period: 5s
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - pulse-techops-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
   migrate:
     build:
       context: ../app
@@ -24,6 +37,7 @@ services:
     command: ["python", "src/migrate.py"]
     environment: &pulse_environment
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env.techops}
+      REDIS_URL: redis://redis:6379/0
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:?set SLACK_BOT_TOKEN in .env.techops}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:?set SLACK_SIGNING_SECRET in .env.techops}
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?set FLASK_SECRET_KEY in .env.techops}
@@ -55,6 +69,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     healthcheck:
@@ -78,3 +94,5 @@ services:
 volumes:
   pulse-techops-postgres:
     name: pulse-techops-postgres
+  pulse-techops-redis:
+    name: pulse-techops-redis
