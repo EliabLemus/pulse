@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from compass import ticket_url
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -826,6 +828,20 @@ def standup_form_modal(
     compass_tasks = (compass_tasks or [])[:5]
     blocks: list[dict] = []
     ticket_template = "\n".join(f"{task.get('key') or 'Sin clave'}: " for task in compass_tasks)
+    if compass_tasks:
+        task_lines = ["*Tus tickets Compass esta semana*"]
+        for task in compass_tasks:
+            key = str(task.get("key") or "").strip()
+            title = str(task.get("title") or "Sin título")
+            label = f"<{ticket_url(key)}|{key}>" if key else "Sin clave"
+            task_lines.append(f"• {label} — {title}")
+        blocks.append(
+            {
+                "type": "section",
+                "block_id": "compass_context",
+                "text": {"type": "mrkdwn", "text": "\n".join(task_lines)},
+            }
+        )
     for i, question in enumerate(questions):
         prev = previous_answers[i] if i < len(previous_answers) else ""
         element: dict = {

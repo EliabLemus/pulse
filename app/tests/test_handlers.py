@@ -227,8 +227,14 @@ class TestSingleFormSubmission:
             _action_handler("fill_in_form")(MagicMock(), body, client)
 
         view = client.views_open.call_args.kwargs["view"]
+        context = next(block for block in view["blocks"] if block.get("block_id") == "compass_context")
+        assert "<https://compass.zubale.com/tickets/TOP-1|TOP-1>" in context["text"]["text"]
         expected = mrkdwn_to_rich_text("TOP-1: ")
-        assert [block["element"]["initial_value"] for block in view["blocks"]] == [expected, expected, expected]
+        assert [block["element"]["initial_value"] for block in view["blocks"] if block["type"] == "input"] == [
+            expected,
+            expected,
+            expected,
+        ]
 
     def test_form_submission_syncs_progress_before_completing_the_standup(self):
         import handlers

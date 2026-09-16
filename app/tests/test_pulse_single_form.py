@@ -85,8 +85,14 @@ def test_pulse_form_templates_the_three_questions_with_ticket_keys():
         compass_tasks=[{"key": "TECH-12", "title": "Taxonomia"}, {"key": "TECH-1", "title": "SigNoz"}],
     )
 
-    assert [block["type"] for block in modal["blocks"]] == ["input", "input", "input"]
-    assert [block["label"]["text"] for block in modal["blocks"]] == QUESTIONS
-    assert not any(block.get("block_id", "").startswith("compass_progress_") for block in modal["blocks"])
+    context = modal["blocks"][0]
+    assert context["type"] == "section"
+    assert context.get("block_id") == "compass_context"
+    text = context["text"]["text"]
+    assert "Tus tickets Compass esta semana" in text
+    assert "<https://compass.zubale.com/tickets/TECH-12|TECH-12>" in text
+    assert "<https://compass.zubale.com/tickets/TECH-1|TECH-1>" in text
+    inputs = [block for block in modal["blocks"] if block["type"] == "input"]
+    assert [block["label"]["text"] for block in inputs] == QUESTIONS
     template = mrkdwn_to_rich_text("TECH-12: \nTECH-1: ")
-    assert [block["element"]["initial_value"] for block in modal["blocks"]] == [template, template, template]
+    assert [block["element"]["initial_value"] for block in inputs] == [template, template, template]
