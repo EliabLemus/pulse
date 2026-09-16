@@ -35,6 +35,7 @@ class UserSession:
     schedule_id: Optional[int] = None  # source schedule — avoids channel-based lookup ambiguity
     editing_standup_id: Optional[int] = None  # set when user is editing an existing submission
     edit_initial_answers: list[str] = field(default_factory=list)  # pre-fill text for each question
+    compass_tasks: list[dict] = field(default_factory=list)  # task identity carried from the DM into the modal
 
     @property
     def user_id(self) -> str:
@@ -53,6 +54,7 @@ def _serialize(session: "UserSession") -> dict:
         "schedule_id": session.schedule_id,
         "editing_standup_id": session.editing_standup_id,
         "edit_initial_answers": session.edit_initial_answers,
+        "compass_tasks": session.compass_tasks,
     }
 
 
@@ -68,6 +70,7 @@ def _deserialize(data: dict) -> "UserSession":
         schedule_id=data.get("schedule_id"),
         editing_standup_id=data.get("editing_standup_id"),
         edit_initial_answers=data.get("edit_initial_answers") or [],
+        compass_tasks=data.get("compass_tasks") or [],
     )
 
 
@@ -88,6 +91,7 @@ class StateStore:
         schedule_id: Optional[int] = None,
         editing_standup_id: Optional[int] = None,
         edit_initial_answers: Optional[list[str]] = None,
+        compass_tasks: Optional[list[dict]] = None,
     ) -> UserSession:
         """Begin a new standup session. cache_key should be 'team_id:user_id'."""
         if not team_id:
@@ -103,6 +107,7 @@ class StateStore:
                 schedule_id=schedule_id,
                 editing_standup_id=editing_standup_id,
                 edit_initial_answers=list(edit_initial_answers) if edit_initial_answers else [],
+                compass_tasks=list(compass_tasks) if compass_tasks else [],
             )
             session_store.set_session(cache_key, _serialize(session))
             return session

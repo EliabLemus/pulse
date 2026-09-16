@@ -809,14 +809,45 @@ def standup_resume_message() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def standup_form_modal(questions: list[str], standup_name: str, previous_answers: list[str] | None = None) -> dict:
+def standup_form_modal(
+    questions: list[str],
+    standup_name: str,
+    previous_answers: list[str] | None = None,
+    compass_tasks: list[dict] | None = None,
+) -> dict:
     """Modal opened when user clicks 'Fill in form'.
 
     If *previous_answers* is provided, the corresponding fields are
-    pre-filled so the user can quickly update rather than retype.
+    pre-filled so the user can quickly update rather than retype.  Compass
+    tasks retain the private context from the DM and offer optional progress
+    fields; submission syncs non-empty values back to Compass.
     """
     previous_answers = previous_answers or []
-    blocks = []
+    compass_tasks = (compass_tasks or [])[:5]
+    blocks: list[dict] = []
+    if compass_tasks:
+        task_lines = ["*Compass · tareas con fecha esta semana*"]
+        for task in compass_tasks:
+            task_lines.append(f"• {task.get('key') or 'Sin clave'} — {task.get('title') or 'Sin título'}")
+        blocks.append(
+            {
+                "type": "section",
+                "block_id": "compass_context",
+                "text": {"type": "mrkdwn", "text": "\n".join(task_lines)},
+            }
+        )
+        for i, task in enumerate(compass_tasks):
+            key = str(task.get("key") or "Sin clave")
+            title = str(task.get("title") or "Sin título")
+            blocks.append(
+                {
+                    "type": "input",
+                    "block_id": f"compass_progress_{i}",
+                    "label": {"type": "plain_text", "text": f"{key} — {title}"},
+                    "element": {"type": "rich_text_input", "action_id": f"progress_{i}"},
+                    "optional": True,
+                }
+            )
     for i, question in enumerate(questions):
         prev = previous_answers[i] if i < len(previous_answers) else ""
         element: dict = {

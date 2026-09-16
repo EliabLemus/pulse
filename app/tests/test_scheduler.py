@@ -122,6 +122,44 @@ def test_compass_context_failure_is_non_blocking(monkeypatch):
     assert sched_mod._compass_context_for_members([{"email": "alice@zubale.com"}], {"schedule_tz": "UTC"}) == {}
 
 
+def test_scheduled_dm_preserves_recipient_compass_tasks_in_the_active_session(monkeypatch):
+    db = MagicMock()
+    db.get_standup_schedule.return_value = _schedule_row(
+        active=True,
+        questions=["Q1", "Q2", "Q3"],
+        participants=[],
+    )
+    db.get_active_members.return_value = [{"user_id": "U1", "email": "alice@zubale.com"}]
+    db.is_skipped_today.return_value = False
+    db.is_on_vacation.return_value = False
+    client = MagicMock()
+    client.auth_test.return_value = {"ok": True}
+    starts: list[dict] = []
+
+    monkeypatch.setattr(sched_mod, "_fresh_bot_token", lambda _team, token: token)
+    monkeypatch.setattr(sched_mod, "WebClient", lambda token: client)
+    monkeypatch.setattr(
+        sched_mod,
+        "_compass_context_for_members",
+        lambda _members, _schedule: {"alice@zubale.com": [{"key": "TOP-1", "title": "Improve deployment"}]},
+    )
+    monkeypatch.setattr(sched_mod.state_store, "is_active", lambda _key: False)
+    monkeypatch.setattr(sched_mod.state_store, "start", lambda *_args, **kwargs: starts.append(kwargs))
+
+    with patch.dict(sys.modules, {"db": db}):
+        sched_mod._send_standup_to_workspace("T1", "xoxb-test", "C1", schedule_id=1)
+
+    assert starts == [
+        {
+            "team_id": "T1",
+            "questions": ["Q1", "Q2", "Q3"],
+            "standup_name": "Morning Standup",
+            "schedule_id": 1,
+            "compass_tasks": [{"key": "TOP-1", "title": "Improve deployment"}],
+        }
+    ]
+
+
 class TestSyncRegistersNewSchedules(_SyncTestBase):
     def test_new_schedule_gets_jobs(self):
         db = _make_db(schedules=[_schedule_row()], installations=[_installation_row()])

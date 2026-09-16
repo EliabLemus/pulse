@@ -463,10 +463,12 @@ def _send_standup_to_workspace(team_id: str, bot_token: str, channel_id: str, sc
                 "What are you working on today?",
                 "Any blockers?",
             ]
+            member_email = str(member.get("email", "")).strip().lower()
+            member_compass_tasks = compass_context.get(member_email) or []
             dm_msg = standup_dm_message(
                 default_questions,
                 standup_name,
-                compass_tasks=compass_context.get(str(member.get("email", "")).strip().lower()),
+                compass_tasks=member_compass_tasks,
             )
             _slack_dm_with_retry(
                 client, user_id, team_id=team_id, text=f"🌅 Time for your standup! — {standup_name}", **dm_msg
@@ -479,6 +481,7 @@ def _send_standup_to_workspace(team_id: str, bot_token: str, channel_id: str, sc
                 questions=questions,
                 standup_name=standup_name,
                 schedule_id=schedule_id,
+                compass_tasks=member_compass_tasks,
             )
             logger.info("Sent standup DM to %s / %s", team_id, user_id)
         except Exception as exc:

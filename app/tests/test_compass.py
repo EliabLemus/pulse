@@ -52,3 +52,15 @@ def test_weekly_assignments_groups_only_matching_assignees_within_monday_to_frid
     assert [task["key"] for task in assignments["alice@zubale.com"]] == ["TOP-1", "TOP-3"]
     assert assignments["carol@zubale.com"] == []
     assert client._request_json.call_count == 6
+
+
+def test_post_comment_uses_only_the_task_key_and_progress_body():
+    client = CompassClient("cmp_test")
+    client._call_mcp = MagicMock(return_value={"ok": True})
+
+    client.post_comment("TOP-1", "Actualización de Pulse:\nDesplegué Redis y validé la sesión.")
+
+    client._call_mcp.assert_called_once_with(
+        "post_comment",
+        {"key": "TOP-1", "body": "Actualización de Pulse:\nDesplegué Redis y validé la sesión."},
+    )

@@ -21,6 +21,36 @@ class CompassClient:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._mcp_url = "https://compass.zubale.com/api/v2/mcp"
+
+    def _call_mcp(self, tool_name: str, arguments: dict[str, str]) -> dict[str, Any]:
+        request = Request(
+            self._mcp_url,
+            data=json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": tool_name, "arguments": arguments},
+                }
+            ).encode(),
+            headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=self._timeout_seconds) as response:
+            payload = json.load(response)
+        if not isinstance(payload, dict) or payload.get("error"):
+            raise ValueError("Compass rejected the MCP tool call")
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("Compass returned an invalid MCP tool result")
+        return result
+
+    def post_comment(self, key: str, body: str) -> dict[str, Any]:
+        """Post a textual progress update without changing task workflow fields."""
+        if not key.strip() or not body.strip():
+            raise ValueError("Compass comments require a task key and non-empty body")
+        return self._call_mcp("post_comment", {"key": key, "body": body})
 
     def _request_json(self, path: str, params: dict[str, object] | None = None) -> dict[str, Any]:
         query = f"?{urlencode(params)}" if params else ""

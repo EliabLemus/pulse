@@ -77,3 +77,23 @@ def test_pulse_form_has_exactly_the_three_dsu_questions():
     assert modal["submit"]["text"] == "Enviar update"
     assert [block["label"]["text"] for block in modal["blocks"]] == QUESTIONS
     assert len(modal["blocks"]) == 3
+
+
+def test_pulse_form_keeps_compass_tasks_and_adds_optional_progress_inputs():
+    modal = standup_form_modal(
+        QUESTIONS,
+        "Pulse TechOps Pilot",
+        compass_tasks=[
+            {"key": "TOP-1", "title": "Improve deployment"},
+            {"key": "TOP-2", "title": "Review incident"},
+        ],
+    )
+
+    compass_context = next(block for block in modal["blocks"] if block.get("block_id") == "compass_context")
+    assert "Compass · tareas con fecha esta semana" in compass_context["text"]["text"]
+    progress_blocks = [block for block in modal["blocks"] if block.get("block_id", "").startswith("compass_progress_")]
+    assert [(block["label"]["text"], block["optional"]) for block in progress_blocks] == [
+        ("TOP-1 — Improve deployment", True),
+        ("TOP-2 — Review incident", True),
+    ]
+    assert [block["label"]["text"] for block in modal["blocks"][-3:]] == QUESTIONS
