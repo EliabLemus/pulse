@@ -54,12 +54,24 @@ def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
     labels = ("Ayer", "Hoy", "Bloqueo")
     mentioned: dict[str, list[str]] = {}
     keys = [str(task.get("key") or "").strip() for task in tasks]
+
+    def _key_variants(key: str) -> list[str]:
+        """Literal key plus a hyphen-optional spelling (TECH-1 ~ TECH1)."""
+        no_hyphen = key.replace("-", "")
+        return [key] if no_hyphen == key else [key, no_hyphen]
+
     for answer, label in zip(answers, labels):
         text = answer.strip()
         if not text:
             continue
         for key in keys:
-            if key and re.search(rf"(?<![A-Za-z0-9-]){re.escape(key)}(?![A-Za-z0-9-])", text):
+            if not key:
+                continue
+            matched = any(
+                re.search(rf"(?<![A-Za-z0-9]){re.escape(variant)}(?![A-Za-z0-9])", text, re.IGNORECASE)
+                for variant in _key_variants(key)
+            )
+            if matched:
                 mentioned.setdefault(key, []).append(f"• {label}: {text}")
 
     client = CompassClient(api_key) if api_key else None

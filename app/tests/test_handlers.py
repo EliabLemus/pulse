@@ -326,6 +326,60 @@ class TestSingleFormSubmission:
         assert (synced, failures) == (0, [])
         compass.post_comment.assert_not_called()
 
+    def test_submission_matches_keys_case_insensitively_and_without_hyphen(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            compass_tasks=[
+                {"key": "TECH-12", "title": "Taxonomia"},
+                {"key": "TECH-1", "title": "SigNoz"},
+            ],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            synced, failures = handlers._sync_compass_progress(
+                session,
+                {
+                    "question_0": {"answer_0": {"value": "Tech-12 avance a b y c"}},
+                    "question_1": {"answer_1": {"value": "tech1 dashboards"}},
+                    "question_2": {"answer_2": {"value": "Sin bloqueos"}},
+                },
+            )
+
+        assert (synced, failures) == (2, [])
+        commented = [call.args[0] for call in compass.post_comment.call_args_list]
+        assert commented == ["TECH-12", "TECH-1"]
+
+    def test_submission_does_not_confuse_techn_123_with_techn_12(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            compass_tasks=[{"key": "TECH-12", "title": "Taxonomia"}],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            synced, failures = handlers._sync_compass_progress(
+                session,
+                {
+                    "question_0": {"answer_0": {"value": "Avancé en TECH-123 todo el día"}},
+                    "question_1": {"answer_1": {"value": ""}},
+                    "question_2": {"answer_2": {"value": ""}},
+                },
+            )
+
+        assert (synced, failures) == (0, [])
+        compass.post_comment.assert_not_called()
+
     def test_form_submission_completes_and_reports_compass_failures(self):
         import handlers
 
