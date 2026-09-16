@@ -54,6 +54,20 @@ def test_weekly_assignments_groups_only_matching_assignees_within_monday_to_frid
     assert client._request_json.call_count == 6
 
 
+def test_post_comment_mock_mode_logs_without_touching_the_network(monkeypatch, caplog):
+    client = CompassClient("cmp_test")
+    client._call_mcp = MagicMock(side_effect=AssertionError("mock mode must not call Compass"))
+    monkeypatch.setenv("PULSE_COMPASS_WRITE_MODE", "mock")
+
+    with caplog.at_level("WARNING"):
+        result = client.post_comment("TOP-9", "Actualización de Pulse:\nprueba simulada")
+
+    assert result == {"mock": True}
+    assert "PULSE_COMPASS_MOCK_COMMENT" in caplog.text
+    assert "TOP-9" in caplog.text
+    client._call_mcp.assert_not_called()
+
+
 def test_post_comment_uses_only_the_task_key_and_progress_body():
     client = CompassClient("cmp_test")
     client._call_mcp = MagicMock(return_value={"ok": True})

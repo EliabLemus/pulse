@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from datetime import date, timedelta
 from typing import Any
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
+
+logger = logging.getLogger(__name__)
 
 
 class CompassClient:
@@ -47,9 +51,17 @@ class CompassClient:
         return result
 
     def post_comment(self, key: str, body: str) -> dict[str, Any]:
-        """Post a textual progress update without changing task workflow fields."""
+        """Post a textual progress update without changing task workflow fields.
+
+        With PULSE_COMPASS_WRITE_MODE=mock the comment is never sent to
+        Compass: it is logged instead, so live rehearsals can exercise the
+        full Pulse flow with zero real writes.
+        """
         if not key.strip() or not body.strip():
             raise ValueError("Compass comments require a task key and non-empty body")
+        if os.environ.get("PULSE_COMPASS_WRITE_MODE", "").strip().lower() == "mock":
+            logger.warning("PULSE_COMPASS_MOCK_COMMENT key=%s body=%s", key, body)
+            return {"mock": True}
         return self._call_mcp("post_comment", {"key": key, "body": body})
 
     def _request_json(self, path: str, params: dict[str, object] | None = None) -> dict[str, Any]:
