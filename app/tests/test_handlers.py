@@ -225,38 +225,9 @@ class TestSingleFormSubmission:
             _action_handler("fill_in_form")(MagicMock(), body, client)
 
         view = client.views_open.call_args.kwargs["view"]
-        assert not any(block.get("block_id") == "compass_context" for block in view["blocks"])
-        assert any(block.get("block_id") == "compass_progress_0" for block in view["blocks"])
-
-    def test_submission_syncs_only_nonempty_progress_to_matching_compass_task(self, monkeypatch):
-        import handlers
-
-        session = state.UserSession(
-            cache_key="T1:U1",
-            team_id="T1",
-            channel="C1",
-            compass_tasks=[
-                {"key": "TOP-1", "title": "Improve deployment"},
-                {"key": "TOP-2", "title": "Review incident"},
-            ],
-        )
-        compass = MagicMock()
-        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
-
-        with patch.object(handlers, "CompassClient", return_value=compass):
-            synced, failures = handlers._sync_compass_progress(
-                session,
-                {
-                    "compass_progress_0": {"progress_0": {"value": "  "}},
-                    "compass_progress_1": {"progress_1": {"value": "Validé el incidente y documenté el fix."}},
-                },
-            )
-
-        assert (synced, failures) == (1, [])
-        compass.post_comment.assert_called_once_with(
-            "TOP-2",
-            "Actualización de Pulse:\nValidé el incidente y documenté el fix.",
-        )
+        context = next(block for block in view["blocks"] if block.get("block_id") == "compass_context")
+        assert "<https://compass.zubale.com/tickets/TOP-1|TOP-1>" in context["text"]["text"]
+        assert not any(block.get("block_id", "").startswith("compass_progress_") for block in view["blocks"])
 
     def test_form_submission_syncs_progress_before_completing_the_standup(self):
         import handlers
@@ -292,6 +263,68 @@ class TestSingleFormSubmission:
 
         sync.assert_called_once_with(fresh, values)
         complete.assert_called_once_with("U1", fresh, client)
+
+    def test_submission_comments_only_mentioned_tickets_with_yesterday_today_blocker(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            compass_tasks=[
+                {"key": "TOP-1", "title": "Improve deployment"},
+                {"key": "TOP-2", "title": "Review incident"},
+            ],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            synced, failures = handlers._sync_compass_progress(
+                session,
+                {
+                    "question_0": {"answer_0": {"value": "Avancé TOP-1 con la matriz y revisé PRs"}},
+                    "question_1": {"answer_1": {"value": "Hoy sigo TOP-2 en dashboards"}},
+                    "question_2": {"answer_2": {"value": "Bloqueado en TOP-1 por acceso a analytics"}},
+                },
+            )
+
+        assert (synced, failures) == (2, [])
+        assert compass.post_comment.call_count == 2
+        first = compass.post_comment.call_args_list[0].args
+        second = compass.post_comment.call_args_list[1].args
+        assert first[0] == "TOP-1"
+        assert "• Ayer: Avancé TOP-1 con la matriz y revisé PRs" in first[1]
+        assert "• Bloqueo: Bloqueado en TOP-1 por acceso a analytics" in first[1]
+        assert "Hoy" not in first[1]
+        assert second[0] == "TOP-2"
+        assert "• Hoy: Hoy sigo TOP-2 en dashboards" in second[1]
+        assert "Ayer" not in second[1]
+
+    def test_submission_without_ticket_mentions_posts_no_compass_comments(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            compass_tasks=[{"key": "TOP-1", "title": "Improve deployment"}],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            synced, failures = handlers._sync_compass_progress(
+                session,
+                {
+                    "question_0": {"answer_0": {"value": "Revisé PRs del equipo"}},
+                    "question_1": {"answer_1": {"value": "Documentación interna"}},
+                    "question_2": {"answer_2": {"value": "Sin bloqueos"}},
+                },
+            )
+
+        assert (synced, failures) == (0, [])
+        compass.post_comment.assert_not_called()
 
     def test_form_submission_completes_and_reports_compass_failures(self):
         import handlers

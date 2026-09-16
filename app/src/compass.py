@@ -12,6 +12,13 @@ from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
+COMPASS_WEB_BASE_URL = "https://compass.zubale.com"
+
+
+def ticket_url(key: str) -> str:
+    """Return the Compass web URL for a task key (e.g. TECH-1)."""
+    return f"{COMPASS_WEB_BASE_URL}/tickets/{key}"
+
 
 class CompassClient:
     """Fetch visible Compass work without performing any write operation."""
@@ -25,7 +32,7 @@ class CompassClient:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
-        self._mcp_url = "https://compass.zubale.com/api/v2/mcp"
+        self._mcp_url = f"{COMPASS_WEB_BASE_URL}/api/v2/mcp"
 
     def _call_mcp(self, tool_name: str, arguments: dict[str, str]) -> dict[str, Any]:
         request = Request(

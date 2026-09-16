@@ -1,4 +1,4 @@
-"""Regression tests for Pulse's one-form TechOps standup capture."""
+"""Single-form Pulse flow: DM context, modal shape, and Compass references."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
-from blocks import standup_dm_message, standup_form_modal, standup_resume_message
+from blocks import standup_dm_message, standup_form_modal, standup_resume_message  # noqa: E402
 
 QUESTIONS = [
     "¿Qué lograste avanzar o completar ayer?",
@@ -15,18 +15,10 @@ QUESTIONS = [
     "¿Tienes algún bloqueo que te impida avanzar hoy?",
 ]
 
-
-def test_pulse_dm_is_a_single_form_entrypoint_not_a_first_question():
-    message = standup_dm_message(QUESTIONS, "Pulse TechOps Pilot")
-    blocks = message["blocks"]
-
-    action_blocks = [block for block in blocks if block["type"] == "actions"]
-    elements = action_blocks[0]["elements"]
-    assert ("fill_in_form", "Completar mi update") in [
-        (element["action_id"], element["text"]["text"]) for element in elements
-    ]
-    assert not any(block.get("block_id") == "first_question" for block in blocks)
-    assert "formulario" in blocks[1]["text"]["text"].lower()
+TASKS = [
+    {"key": "TOP-1", "title": "Improve deployment"},
+    {"key": "TOP-2", "title": "Review incident"},
+]
 
 
 def test_pulse_dm_shows_only_the_recipient_compass_tasks_without_changing_form_entrypoint():
@@ -79,21 +71,23 @@ def test_pulse_form_has_exactly_the_three_dsu_questions():
     assert len(modal["blocks"]) == 3
 
 
-def test_pulse_form_keeps_compass_tasks_and_adds_optional_progress_inputs():
-    modal = standup_form_modal(
-        QUESTIONS,
-        "Pulse TechOps Pilot",
-        compass_tasks=[
-            {"key": "TOP-1", "title": "Improve deployment"},
-            {"key": "TOP-2", "title": "Review incident"},
-        ],
-    )
+def test_pulse_form_without_tasks_has_no_ticket_section():
+    modal = standup_form_modal(QUESTIONS, "Pulse TechOps Pilot", compass_tasks=[])
 
-    compass_context = [block for block in modal["blocks"] if block.get("block_id") == "compass_context"]
-    assert compass_context == []
-    progress_blocks = [block for block in modal["blocks"] if block.get("block_id", "").startswith("compass_progress_")]
-    assert [(block["label"]["text"], block["optional"]) for block in progress_blocks] == [
-        ("TOP-1 — Improve deployment", True),
-        ("TOP-2 — Review incident", True),
-    ]
-    assert [block["label"]["text"] for block in modal["blocks"][-3:]] == QUESTIONS
+    assert all(block.get("block_id") != "compass_context" for block in modal["blocks"])
+    assert len(modal["blocks"]) == 3
+
+
+def test_pulse_form_references_tickets_with_links_but_has_no_per_ticket_inputs():
+    modal = standup_form_modal(QUESTIONS, "Pulse TechOps Pilot", compass_tasks=TASKS)
+
+    assert [block["label"]["text"] for block in modal["blocks"] if block["type"] == "input"] == QUESTIONS
+    assert len(modal["blocks"]) == 4
+    context = modal["blocks"][0]
+    assert context.get("block_id") == "compass_context"
+    text = context["text"]["text"]
+    assert "Tus tickets Compass esta semana" in text
+    assert "<https://compass.zubale.com/tickets/TOP-1|TOP-1>" in text
+    assert "<https://compass.zubale.com/tickets/TOP-2|TOP-2>" in text
+    assert "Improve deployment" in text
+    assert not any(block.get("block_id", "").startswith("compass_progress_") for block in modal["blocks"])

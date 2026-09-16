@@ -26,11 +26,16 @@ _daily_thread_cache: dict[str, str] = {}
 
 
 def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
-    """Post one Compass comment per non-empty task progress field.
+    """Comment on every session ticket mentioned in the DSU answers.
 
-    A failed comment is isolated to its task so the contributor's standup is
-    still accepted and published.  This deliberately exposes no workflow-field
-    mutation such as status, due date, priority, or assignee.
+    The three answers are scanned for the contributor's own ticket keys;
+    only mentioned tickets get a comment, containing the answers that
+    reference them (Ayer / Hoy / Bloqueo lines).  Tickets that go
+    unmentioned stay untouched, which reads as "not worked on today".
+    A failed comment is isolated to its task so the contributor's standup
+    is still accepted and published.  This deliberately exposes no
+    workflow-field mutation such as status, due date, priority, or
+    assignee.
     """
     tasks = getattr(session, "compass_tasks", [])[:5]
     api_key = os.environ.get("COMPASS_API_KEY", "").strip()
@@ -39,22 +44,37 @@ def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
 
     import blocks as _blocks  # noqa: PLC0415
 
+    answers = [
+        _blocks.rich_text_to_mrkdwn(field.get("rich_text_value"))
+        if field.get("rich_text_value")
+        else str(field.get("value", ""))
+        for block_id, action_id in (("question_0", "answer_0"), ("question_1", "answer_1"), ("question_2", "answer_2"))
+        if (field := values.get(block_id, {}).get(action_id, {}))
+    ]
+    labels = ("Ayer", "Hoy", "Bloqueo")
+    mentioned: dict[str, list[str]] = {}
+    keys = [str(task.get("key") or "").strip() for task in tasks]
+    for answer, label in zip(answers, labels):
+        text = answer.strip()
+        if not text:
+            continue
+        for key in keys:
+            if key and re.search(rf"(?<![A-Za-z0-9-]){re.escape(key)}(?![A-Za-z0-9-])", text):
+                mentioned.setdefault(key, []).append(f"• {label}: {text}")
+
     client = CompassClient(api_key) if api_key else None
     synced = 0
     failures: list[str] = []
-    for i, task in enumerate(tasks):
-        key = str(task.get("key") or "").strip()
-        field = values.get(f"compass_progress_{i}", {}).get(f"progress_{i}", {})
-        rich_text = field.get("rich_text_value")
-        progress = _blocks.rich_text_to_mrkdwn(rich_text) if rich_text else field.get("value", "")
-        progress = str(progress).strip()
-        if not progress:
+    for key in keys:
+        lines = mentioned.get(key)
+        if not lines:
             continue
-        if not client or not key:
-            failures.append(key or f"tarea {i + 1}")
+        if not client:
+            failures.append(key)
             continue
+        body = "Actualización de Pulse:\n" + "\n".join(lines)
         try:
-            client.post_comment(key, f"Actualización de Pulse:\n{progress}")
+            client.post_comment(key, body)
             synced += 1
         except Exception:
             logger.warning("Could not post Pulse progress to Compass task %s", key)
