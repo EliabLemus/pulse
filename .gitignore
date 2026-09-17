@@ -10,6 +10,7 @@ venv/
 dist/
 *.egg-info/
 .DS_Store
+coverage.xml
 .netlify/
 app/helm/morgenruf/charts/
 morgenruf-prod-values.yaml

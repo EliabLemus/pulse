@@ -26,7 +26,7 @@ def _env(**overrides):
         "PULSE_BOT_USER_ID": "U12345678",
         "PULSE_APP_ID": "A12345678",
         "PULSE_PARTICIPANT_ID": "U87654321",
-        "PULSE_PARTICIPANT_NAME": "Eliab",
+        "PULSE_PARTICIPANT_NAME": "YourName",
         "PULSE_CHANNEL_ID": "G12345678",
         "PULSE_MANAGER_ID": "U87654321",
     }

@@ -25,7 +25,7 @@ features:
 
 oauth_config:
   redirect_urls:
-    - "https://api.morgenruf.dev/oauth/callback"
+    - "https://pulse.example.com/oauth/callback"
   scopes:
     bot:
       - chat:write
@@ -42,7 +42,7 @@ oauth_config:
 
 settings:
   event_subscriptions:
-    request_url: "https://api.morgenruf.dev/slack/events"
+    request_url: "https://pulse.example.com/slack/events"
     bot_events:
       - message.im
       - app_mention
@@ -50,7 +50,7 @@ settings:
       - member_joined_channel
   interactivity:
     is_enabled: true
-    request_url: "https://api.morgenruf.dev/slack/events"
+    request_url: "https://pulse.example.com/slack/interactions"
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: true

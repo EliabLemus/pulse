@@ -56,6 +56,11 @@ configure the same HTTPS base URL in Slack for:
 - `/slack/interactions`
 - `/oauth/callback`
 
+Use a **stable** hostname (reverse proxy, named Cloudflare tunnel, Tailscale
+Funnel). An ephemeral quick tunnel (e.g. `*.trycloudflare.com`) dies when its
+process exits, and Slack keeps delivering every button in every historical DM
+to the stored Request URL — a dead hostname silently breaks all history.
+
 Validate proxy configuration before any proxy reload. Do not expose port 3015
 directly to the Internet.
 

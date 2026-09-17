@@ -8,6 +8,51 @@ Format: [Keep a Changelog](https://keepachangelog.com) | Versioning: [SemVer](ht
 ### Added
 - Helm chart optional Gateway API `HTTPRoute` support (`httpRoute.enabled`, chart v0.5.0)
 
+## [1.8.0] — 2026-09-15
+
+Compass-enriched TechOps updates.
+
+### Added
+- **Compass-enriched DSU updates.** When Compass tasks are available, the DM
+  lists the tasks due this week and the update modal offers optional per-task
+  progress fields. Submitting posts one Compass comment per filled task.
+- **Templated DSU answers** with one `KEY: ` line per linked ticket, and
+  linked ticket references kept above the templated answers.
+- **Redis-backed sessions** so the selected task list survives the scheduler →
+  DM → modal round trip.
+- **Opt-in mock write mode** (`PULSE_COMPASS_WRITE_MODE=mock`) for demos and
+  CI: Compass comments are logged instead of written.
+
+### Fixed
+- Ticket keys match case-insensitively and without hyphens.
+
+## [1.7.0] — 2026-09-15
+
+The Pulse TechOps pilot.
+
+### Added
+- Single-form daily update: one DM button opens one Spanish-language modal
+  with exactly three questions; submitting posts to the team channel thread.
+- Pending reminders at configurable offsets that only reach people still
+  pending (responders, skippers, and away users are excluded), calculated in
+  the schedule timezone.
+- Window close: at the configured time the channel gets only a clean
+  `Sin update: @usuario` line per pending member — already-published updates
+  are never re-summarized.
+- Blockers post complete with the manager mention appended after the update,
+  so the reading flow stays intact.
+- Edit responses reopens the same prefilled form; new submissions update the
+  original thread reply in place via stored message pointers.
+- Reversible single-workspace Docker Compose deployment package under
+  `deploy/` (Postgres + Redis + app, idempotent migrations and seed, guarded
+  purge).
+- Branded workflow diagram (`docs/pulse-workflow.svg`).
+
+### Changed
+- Spanish date format in standup posts and thread headers.
+- Emojis removed from pending reminders; clean missing-update mentions at
+  window close.
+
 ## [1.6.0] — 2026-09-03
 
 A scheduled standup could fire perfectly and still look completely broken. Four

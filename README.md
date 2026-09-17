@@ -1,6 +1,6 @@
 # Pulse
 
-> Private fork of the open-source [Morgenruf](https://github.com/morgenruf/morgenruf) project (MIT), adapted for the TechOps daily-update workflow.
+> Fork of the open-source [Morgenruf](https://github.com/morgenruf/morgenruf) project (MIT), adapted for the TechOps daily-update workflow.
 
 Pulse collects a daily update in one Slack modal and posts it automatically to the team channel. It is self-hosted: Slack callbacks reach the app over HTTPS, while standup data lives in PostgreSQL.
 
@@ -120,24 +120,13 @@ See [**Kubernetes Deployment**](#kubernetes-deployment) below.
 
 ## Docker Image
 
-Available on DockerHub: [`morgenruf/morgenruf`](https://hub.docker.com/r/morgenruf/morgenruf)
+This fork does not publish images to a registry — build from source:
 
 ```bash
-docker pull morgenruf/morgenruf:latest
+docker compose --project-name pulse-techops -f deploy/docker-compose.techops.yml build app
 ```
 
-Also mirrored at `ghcr.io/morgenruf/morgenruf:latest`
-
-### GitHub Actions / CI
-
-The image is automatically built and pushed on every push to `main` and on version tags (`v*`) via `.github/workflows/docker-publish.yml`.
-
-If you fork this repo, add the following secrets under **Settings → Secrets and variables → Actions**:
-
-| Secret | Value |
-|---|---|
-| `DOCKERHUB_USERNAME` | `morgenruf` |
-| `DOCKERHUB_TOKEN` | Your DockerHub access token |
+The upstream project publishes [`morgenruf/morgenruf`](https://hub.docker.com/r/morgenruf/morgenruf) on DockerHub (mirrored at `ghcr.io/morgenruf/morgenruf:latest`). This repository tracks upstream features, but the TechOps deployment package deliberately always builds from source and never pulls the upstream image.
 
 ## Docker / Mac Quickstart
 
@@ -406,6 +395,11 @@ app/helm/morgenruf/
 ---
 
 ## Deploy
+
+- **Quickstart / evaluation:** the Docker / Mac Quickstart above.
+- **Production single-workspace (TechOps pilot):** see [`deploy/README.md`](./deploy/README.md) — a reversible Docker Compose stack (Postgres + Redis + app) with idempotent migrations and seed, plus a guarded data purge.
+
+Whichever route you choose, Slack's Request URLs must point at your public HTTPS host (`/slack/events`, `/slack/interactions`, `/oauth/callback`). Use a stable hostname — a reverse proxy, Cloudflare Tunnel with a named tunnel, or Tailscale Funnel — rather than an ephemeral quick tunnel: Slack stores the Request URL, and the buttons inside already-delivered DMs keep posting to it long after the message was sent. If the stored hostname dies, every historical DM button dies with it.
 
 ---
 
