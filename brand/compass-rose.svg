@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#10233a"/>
+      <stop offset="100%" stop-color="#0d1117"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256.0" cy="256.0" r="238" fill="none" stroke="#22d3ee" stroke-opacity="0.35" stroke-width="3"/>
+  <polygon points="256.0,38.0 245.2,205.1 256.0,256.0" fill="#fbbf24"/><polygon points="256.0,38.0 266.8,205.1 256.0,256.0" fill="#b45309"/><polygon points="474.0,256.0 306.9,245.2 256.0,256.0" fill="#67e8f9"/><polygon points="474.0,256.0 306.9,266.8 256.0,256.0" fill="#0e7490"/><polygon points="256.0,474.0 266.8,306.9 256.0,256.0" fill="#67e8f9"/><polygon points="256.0,474.0 245.2,306.9 256.0,256.0" fill="#0e7490"/><polygon points="38.0,256.0 205.1,266.8 256.0,256.0" fill="#67e8f9"/><polygon points="38.0,256.0 205.1,245.2 256.0,256.0" fill="#0e7490"/><polygon points="360.7,151.3 286.6,213.9 256.0,256.0" fill="#34d399"/><polygon points="360.7,151.3 298.1,225.4 256.0,256.0" fill="#065f46"/><polygon points="360.7,360.7 298.1,286.6 256.0,256.0" fill="#34d399"/><polygon points="360.7,360.7 286.6,298.1 256.0,256.0" fill="#065f46"/><polygon points="151.3,360.7 225.4,298.1 256.0,256.0" fill="#34d399"/><polygon points="151.3,360.7 213.9,286.6 256.0,256.0" fill="#065f46"/><polygon points="151.3,151.3 213.9,225.4 256.0,256.0" fill="#34d399"/><polygon points="151.3,151.3 225.4,213.9 256.0,256.0" fill="#065f46"/>
+  <circle cx="256.0" cy="256.0" r="30" fill="#0d1117" stroke="#fbbf24" stroke-width="7"/>
+  <circle cx="256.0" cy="256.0" r="11" fill="#fbbf24"/>
+</svg>
