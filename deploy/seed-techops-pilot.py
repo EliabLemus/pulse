@@ -15,7 +15,7 @@ import sys
 from collections.abc import Callable, Mapping
 from typing import Any
 
-SCHEDULE_NAME = "Pulse TechOps Pilot"
+SCHEDULE_NAME = "Compass DSU"
 QUESTIONS = [
     "¿Qué lograste avanzar o completar ayer?",
     "¿Cuál es tu tarea principal para hoy?",

@@ -36,6 +36,7 @@ def _env(**overrides):
 
 def test_seed_upserts_installation_member_and_one_named_schedule_without_logging_secrets(capsys):
     module = _load_module()
+    assert module.SCHEDULE_NAME == "Compass DSU"
     cursor = MagicMock()
     cursor.fetchone.side_effect = [None, {"id": 42}]
     connection = MagicMock()

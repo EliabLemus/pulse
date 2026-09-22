@@ -519,7 +519,7 @@ class TestSingleFormEdit:
             "channel_id": "C1",
             "questions": ["Q1", "Q2", "Q3"],
             "id": 7,
-            "name": "Pulse TechOps Pilot",
+            "name": "Compass DSU",
         }
         db_mock.get_standup_by_id.return_value = {
             "yesterday": "ayer",

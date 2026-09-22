@@ -24,7 +24,7 @@ TASKS = [
 def test_pulse_dm_shows_only_the_recipient_compass_tasks_without_changing_form_entrypoint():
     message = standup_dm_message(
         QUESTIONS,
-        "Pulse TechOps Pilot",
+        "Compass DSU",
         compass_tasks=[
             {"key": "TOP-1", "title": "Improve deployment", "status": "active", "dueDate": "2026-09-15"},
             {"key": "TOP-2", "title": "Review incident", "status": "todo", "dueDate": "2026-09-18"},
@@ -36,11 +36,11 @@ def test_pulse_dm_shows_only_the_recipient_compass_tasks_without_changing_form_e
     assert "Compass · tareas con fecha esta semana" in text
     assert "TOP-1 — Improve deployment" in text
     assert "TOP-2 — Review incident" in text
-    assert len(standup_form_modal(QUESTIONS, "Pulse TechOps Pilot")["blocks"]) == 3
+    assert len(standup_form_modal(QUESTIONS, "Compass DSU")["blocks"]) == 3
 
 
 def test_pulse_skip_confirm_mentions_the_recovery_path():
-    message = standup_dm_message(QUESTIONS, "Pulse TechOps Pilot")
+    message = standup_dm_message(QUESTIONS, "Compass DSU")
     skip = next(
         element
         for block in message["blocks"]
@@ -63,7 +63,7 @@ def test_pulse_skip_confirmation_message_offers_the_resume_button():
 
 
 def test_pulse_form_has_exactly_the_three_dsu_questions():
-    modal = standup_form_modal(QUESTIONS, "Pulse TechOps Pilot")
+    modal = standup_form_modal(QUESTIONS, "Compass DSU")
 
     assert modal["title"]["text"] == "Pulse — Update diario"
     assert modal["submit"]["text"] == "Enviar update"
@@ -72,7 +72,7 @@ def test_pulse_form_has_exactly_the_three_dsu_questions():
 
 
 def test_pulse_form_without_tasks_has_no_template():
-    modal = standup_form_modal(QUESTIONS, "Pulse TechOps Pilot", compass_tasks=[])
+    modal = standup_form_modal(QUESTIONS, "Compass DSU", compass_tasks=[])
 
     assert len(modal["blocks"]) == 3
     assert all("initial_value" not in block["element"] for block in modal["blocks"])
@@ -81,7 +81,7 @@ def test_pulse_form_without_tasks_has_no_template():
 def test_pulse_form_templates_the_three_questions_with_ticket_keys():
     modal = standup_form_modal(
         QUESTIONS,
-        "Pulse TechOps Pilot",
+        "Compass DSU",
         compass_tasks=[{"key": "TECH-12", "title": "Taxonomia"}, {"key": "TECH-1", "title": "SigNoz"}],
     )
 
