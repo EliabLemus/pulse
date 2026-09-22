@@ -26,7 +26,7 @@ _daily_thread_cache: dict[str, str] = {}
 
 
 def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
-    """Comment every ticket whose "KEY: " line has content.
+    """Comment ticket progress or blockers whose "KEY: " line has content.
 
     The modal pre-fills the DSU answers with one "KEY: " line per
     session ticket.  A line left empty stays silent; a line with text
@@ -43,11 +43,13 @@ def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
 
     import blocks as _blocks  # noqa: PLC0415
 
+    # "¿Cuál es tu tarea principal para hoy?" is an intention, not progress.
+    # Keep it in the channel update but never publish it to Compass.
     answers = [
         _blocks.rich_text_to_mrkdwn(field.get("rich_text_value"))
         if field.get("rich_text_value")
         else str(field.get("value", ""))
-        for block_id, action_id in (("question_0", "answer_0"), ("question_1", "answer_1"), ("question_2", "answer_2"))
+        for block_id, action_id in (("question_0", "answer_0"), ("question_2", "answer_2"))
         if (field := values.get(block_id, {}).get(action_id, {}))
     ]
 

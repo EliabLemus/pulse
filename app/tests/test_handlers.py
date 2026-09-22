@@ -297,11 +297,10 @@ class TestSingleFormSubmission:
                 },
             )
 
-        assert (synced, failures) == (2, [])
+        assert (synced, failures) == (1, [])
         comments = {call.args[0]: call.args[1] for call in compass.post_comment.call_args_list}
-        assert set(comments) == {"TECH-12", "TECH-1"}
+        assert set(comments) == {"TECH-12"}
         assert comments["TECH-12"] == "Actualización de Pulse:\navance a b y c"
-        assert comments["TECH-1"] == "Actualización de Pulse:\nsigo dashboards"
 
     def test_submission_with_cleared_templates_posts_no_compass_comments(self, monkeypatch):
         import handlers
@@ -321,6 +320,31 @@ class TestSingleFormSubmission:
                 {
                     "question_0": {"answer_0": {"value": "Revisé PRs del equipo"}},
                     "question_1": {"answer_1": {"value": "Documentación interna"}},
+                    "question_2": {"answer_2": {"value": "Sin bloqueos"}},
+                },
+            )
+
+        assert (synced, failures) == (0, [])
+        compass.post_comment.assert_not_called()
+
+    def test_submission_does_not_sync_planned_today_work_to_compass(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            compass_tasks=[{"key": "TECH-34", "title": "AI Hub"}],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            synced, failures = handlers._sync_compass_progress(
+                session,
+                {
+                    "question_0": {"answer_0": {"value": "Sin avance para reportar"}},
+                    "question_1": {"answer_1": {"value": "TECH-34: Implementar la integración"}},
                     "question_2": {"answer_2": {"value": "Sin bloqueos"}},
                 },
             )
