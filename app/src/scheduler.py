@@ -295,21 +295,16 @@ def _notify_delivery_failure(client: WebClient, channel_id: str, failed_count: i
 def _compass_context_for_members(
     members: list[dict],
     schedule: dict,
-    *,
-    now: datetime | None = None,
 ) -> dict[str, list[dict]]:
     """Return optional, private Compass context keyed by normalized member email."""
     api_key = os.environ.get("COMPASS_API_KEY", "").strip()
     if not api_key:
         return {}
     emails = [member.get("email", "") for member in members]
-    timezone_name = schedule.get("schedule_tz") or "UTC"
     try:
-        local_day = (now or datetime.now(tz=timezone.utc)).astimezone(pytz.timezone(timezone_name)).date()
-        assignments = CompassClient(api_key).weekly_assignments(
+        assignments = CompassClient(api_key).active_sprint_assignments(
             emails,
             team=os.environ.get("COMPASS_TEAM", "techops"),
-            local_day=local_day,
         )
         for email in emails:
             normalized_email = str(email).strip().lower()

@@ -1,13 +1,11 @@
-"""Read-only Compass REST client for optional Pulse DM context."""
+"""Read-only Compass MCP client for optional Pulse DM context."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
-from datetime import date, timedelta
 from typing import Any
-from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
@@ -71,54 +69,35 @@ class CompassClient:
             return {"mock": True}
         return self._call_mcp("post_comment", {"key": key, "body": body})
 
-    def _request_json(self, path: str, params: dict[str, object] | None = None) -> dict[str, Any]:
-        query = f"?{urlencode(params)}" if params else ""
-        request = Request(
-            f"{self._base_url}{path}{query}",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            method="GET",
-        )
-        with urlopen(request, timeout=self._timeout_seconds) as response:
-            payload = json.load(response)
-        if not isinstance(payload, dict):
-            raise ValueError("Compass returned a non-object JSON response")
-        return payload
 
-    def weekly_assignments(
+    def active_sprint_assignments(
         self,
         emails: list[str],
         *,
         team: str,
-        local_day: date,
         max_tasks_per_email: int = 5,
     ) -> dict[str, list[dict[str, Any]]]:
-        """Return open work due Monday-Friday, grouped by normalized assignee email."""
+        """Return open active-sprint work, grouped by normalized assignee email."""
         normalized = {email.strip().lower() for email in emails if isinstance(email, str) and email.strip()}
         assignments: dict[str, list[dict[str, Any]]] = {email: [] for email in normalized}
         if not assignments:
             return assignments
 
-        monday = local_day - timedelta(days=local_day.weekday())
-        friday = monday + timedelta(days=4)
-        keys: list[str] = []
-        seen_keys: set[str] = set()
-        for status in ("todo", "active", "blocked"):
-            result = self._request_json("/tickets", {"team": team, "status": status, "limit": 100})
-            for ticket in result.get("tickets") or []:
-                if not isinstance(ticket, dict):
-                    continue
-                key = ticket.get("key")
-                if isinstance(key, str) and key and key not in seen_keys:
-                    seen_keys.add(key)
-                    keys.append(key)
+        response = _mcp_text_json(self._call_mcp("get_active_sprint", {"team": team}))
+        if response.get("active") is not True:
+            return assignments
 
-        for key in keys:
-            ticket = self._request_json(f"/tickets/{quote(key, safe='')}")
-            assignee = _assignee_email(ticket.get("assignee"))
-            due_date = _parse_due_date(ticket.get("dueDate"))
-            if assignee not in assignments or due_date is None or not monday <= due_date <= friday:
+        for task in response.get("tasks") or []:
+            if not isinstance(task, dict):
                 continue
-            assignments[assignee].append(ticket)
+            assignee = _assignee_email(task.get("assigneeEmail") or task.get("assignee"))
+            if assignee not in assignments or str(task.get("statusCategory") or "").lower() not in {
+                "todo",
+                "active",
+                "blocked",
+            }:
+                continue
+            assignments[assignee].append(task)
 
         for email, tasks in assignments.items():
             tasks.sort(key=lambda task: (str(task.get("dueDate") or ""), str(task.get("key") or "")))
@@ -137,10 +116,16 @@ def _assignee_email(value: object) -> str:
     return ""
 
 
-def _parse_due_date(value: object) -> date | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        return date.fromisoformat(value[:10])
-    except ValueError:
-        return None
+def _mcp_text_json(result: dict[str, Any]) -> dict[str, Any]:
+    """Extract one JSON object from a successful MCP text response."""
+    for item in result.get("content") or []:
+        if not isinstance(item, dict) or item.get("type") != "text" or not isinstance(item.get("text"), str):
+            continue
+        try:
+            payload = json.loads(item["text"])
+        except json.JSONDecodeError as exc:
+            raise ValueError("Compass returned invalid MCP JSON") from exc
+        if isinstance(payload, dict):
+            return payload
+        break
+    raise ValueError("Compass returned no JSON MCP payload")

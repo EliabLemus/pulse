@@ -5,10 +5,7 @@ from __future__ import annotations
 import importlib
 import os
 import sys
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
-
-import pytz
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
@@ -93,29 +90,27 @@ class _SyncTestBase:
             sched_mod._sync_jobs_from_db()
 
 
-def test_compass_context_is_built_once_for_schedule_members_and_uses_schedule_timezone(monkeypatch):
+def test_compass_context_is_built_once_for_schedule_members_and_uses_active_sprint(monkeypatch):
     client = MagicMock()
-    client.weekly_assignments.return_value = {"alice@zubale.com": [{"key": "TOP-1"}]}
+    client.active_sprint_assignments.return_value = {"alice@zubale.com": [{"key": "TOP-1"}]}
     monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
     monkeypatch.setattr(sched_mod, "CompassClient", lambda _: client)
 
     context = sched_mod._compass_context_for_members(
         [{"email": "ALICE@zubale.com"}, {"email": "bob@zubale.com"}],
         {"schedule_tz": "America/Guatemala"},
-        now=datetime(2026, 9, 15, 15, tzinfo=timezone.utc),
     )
 
     assert context == {"alice@zubale.com": [{"key": "TOP-1"}], "bob@zubale.com": []}
-    client.weekly_assignments.assert_called_once_with(
+    client.active_sprint_assignments.assert_called_once_with(
         ["ALICE@zubale.com", "bob@zubale.com"],
         team="techops",
-        local_day=datetime(2026, 9, 15, 9, tzinfo=pytz.timezone("America/Guatemala")).date(),
     )
 
 
 def test_compass_context_failure_is_non_blocking(monkeypatch):
     client = MagicMock()
-    client.weekly_assignments.side_effect = RuntimeError("unavailable")
+    client.active_sprint_assignments.side_effect = RuntimeError("unavailable")
     monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
     monkeypatch.setattr(sched_mod, "CompassClient", lambda _: client)
 
