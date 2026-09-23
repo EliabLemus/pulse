@@ -710,7 +710,7 @@ def standup_dm_message(
             "block_id": "header",
             "text": {
                 "type": "plain_text",
-                "text": f"🟢 {standup_name}",
+                "text": f"🧭 {standup_name}",
                 "emoji": True,
             },
         },
@@ -719,7 +719,7 @@ def standup_dm_message(
             "block_id": "intro",
             "text": {
                 "type": "mrkdwn",
-                "text": "Completa tu update diario en un solo formulario. Al enviarlo, Pulse lo publicará automáticamente al equipo.",
+                "text": "Un momento para alinear el día. Comparte tu avance, foco y bloqueos en un solo update.",
             },
         },
     ]
@@ -865,7 +865,7 @@ def standup_form_modal(
     return {
         "type": "modal",
         "callback_id": "standup_form_modal",
-        "title": {"type": "plain_text", "text": "Pulse — Update diario"},
+        "title": {"type": "plain_text", "text": "Compass DSU"},
         "submit": {"type": "plain_text", "text": "Enviar update"},
         "close": {"type": "plain_text", "text": "Cancelar"},
         "blocks": blocks,

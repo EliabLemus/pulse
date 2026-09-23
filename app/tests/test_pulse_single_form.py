@@ -65,10 +65,23 @@ def test_pulse_skip_confirmation_message_offers_the_resume_button():
 def test_pulse_form_has_exactly_the_three_dsu_questions():
     modal = standup_form_modal(QUESTIONS, "Compass DSU")
 
-    assert modal["title"]["text"] == "Pulse — Update diario"
+    assert modal["title"]["text"] == "Compass DSU"
     assert modal["submit"]["text"] == "Enviar update"
     assert [block["label"]["text"] for block in modal["blocks"]] == QUESTIONS
     assert len(modal["blocks"]) == 3
+
+
+def test_compass_dsu_prompt_uses_the_compass_brand_without_pulse_copy():
+    message = standup_dm_message(QUESTIONS, "Compass DSU")
+    blocks = message["blocks"]
+
+    assert blocks[0]["text"]["text"] == "🧭 Compass DSU"
+    assert blocks[1]["text"]["text"] == (
+        "Un momento para alinear el día. Comparte tu avance, foco y bloqueos en un solo update."
+    )
+    assert "Pulse" not in " ".join(
+        block.get("text", {}).get("text", "") for block in blocks
+    )
 
 
 def test_pulse_form_without_tasks_has_no_template():
