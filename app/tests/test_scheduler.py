@@ -285,7 +285,7 @@ class TestEndToEndStandupDelivery(_SyncTestBase):
         client.conversations_open.assert_called_once_with(users="U1")
         posted = [kwargs for _, kwargs in client.chat_postMessage.call_args_list]
         assert any(kw.get("channel") == "D123" for kw in posted)
-        assert any("Time for your standup" in (kw.get("text") or "") for kw in posted)
+        assert any((kw.get("text") or "") == "Comparte tu update." for kw in posted)
 
 
 class TestReminderSkipsInactiveSchedule(_SyncTestBase):

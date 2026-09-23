@@ -33,7 +33,8 @@ def test_pulse_dm_shows_only_the_recipient_compass_tasks_without_changing_form_e
 
     context = next(block for block in message["blocks"] if block.get("block_id") == "compass_context")
     text = context["text"]["text"]
-    assert "Compass · tareas con fecha esta semana" in text
+    assert "Esta semana" in text
+    assert "Compass" not in text
     assert "TOP-1 — Improve deployment" in text
     assert "TOP-2 — Review incident" in text
     assert len(standup_form_modal(QUESTIONS, "Compass DSU")["blocks"]) == 3
@@ -65,7 +66,7 @@ def test_pulse_skip_confirmation_message_offers_the_resume_button():
 def test_pulse_form_has_exactly_the_three_dsu_questions():
     modal = standup_form_modal(QUESTIONS, "Compass DSU")
 
-    assert modal["title"]["text"] == "Compass DSU"
+    assert modal["title"]["text"] == "Update diario"
     assert modal["submit"]["text"] == "Enviar update"
     assert [block["label"]["text"] for block in modal["blocks"]] == QUESTIONS
     assert len(modal["blocks"]) == 3
@@ -75,11 +76,14 @@ def test_compass_dsu_prompt_uses_the_compass_brand_without_pulse_copy():
     message = standup_dm_message(QUESTIONS, "Compass DSU")
     blocks = message["blocks"]
 
-    assert blocks[0]["text"]["text"] == "🧭 Compass DSU"
-    assert blocks[1]["text"]["text"] == "Comparte tu update."
-    assert "Pulse" not in " ".join(
+    assert not any(block["type"] == "header" for block in blocks)
+    intro = next(block for block in blocks if block.get("block_id") == "intro")
+    assert intro["text"]["text"] == "Comparte tu update."
+    visible_copy = " ".join(
         block.get("text", {}).get("text", "") for block in blocks
     )
+    assert "Compass" not in visible_copy
+    assert "Pulse" not in visible_copy
 
 
 def test_pulse_form_without_tasks_has_no_template():
@@ -100,7 +104,8 @@ def test_pulse_form_templates_the_three_questions_with_ticket_keys():
     assert context["type"] == "section"
     assert context.get("block_id") == "compass_context"
     text = context["text"]["text"]
-    assert "Tus tickets Compass esta semana" in text
+    assert "Esta semana" in text
+    assert "Compass" not in text
     assert "<https://compass.zubale.com/tickets/TECH-12|TECH-12>" in text
     assert "<https://compass.zubale.com/tickets/TECH-1|TECH-1>" in text
     inputs = [block for block in modal["blocks"] if block["type"] == "input"]

@@ -784,7 +784,7 @@ class TestStartStandupSession:
 
         texts = [c.kwargs.get("text", "") for c in client.chat_postMessage.call_args_list]
         assert not any("already" in t.lower() for t in texts)
-        assert any("standup" in t.lower() for t in texts)
+        assert "Comparte tu update." in texts
 
     def test_new_session_sends_starting_message(self):
         _ss_mock.has_session.return_value = False
@@ -810,7 +810,7 @@ class TestStartStandupSession:
 
         # Should post the standup-time DM (with Fill in form button)
         texts = [c.kwargs.get("text", "") for c in client.chat_postMessage.call_args_list]
-        assert any("standup" in t.lower() for t in texts)
+        assert "Comparte tu update." in texts
 
 
 # ---------------------------------------------------------------------------

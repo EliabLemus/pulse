@@ -706,15 +706,6 @@ def standup_dm_message(
     """DM entrypoint for the one-form standup capture."""
     blocks = [
         {
-            "type": "header",
-            "block_id": "header",
-            "text": {
-                "type": "plain_text",
-                "text": f"🧭 {standup_name}",
-                "emoji": True,
-            },
-        },
-        {
             "type": "section",
             "block_id": "intro",
             "text": {
@@ -724,7 +715,7 @@ def standup_dm_message(
         },
     ]
     if compass_tasks:
-        lines = ["*Compass · tareas con fecha esta semana*"]
+        lines = ["*Esta semana*"]
         for task in compass_tasks:
             key = str(task.get("key") or "Sin clave")
             title = str(task.get("title") or "Sin título")
@@ -829,7 +820,7 @@ def standup_form_modal(
     blocks: list[dict] = []
     ticket_template = "\n".join(f"{task.get('key') or 'Sin clave'}: " for task in compass_tasks)
     if compass_tasks:
-        task_lines = ["*Tus tickets Compass esta semana*"]
+        task_lines = ["*Esta semana*"]
         for task in compass_tasks:
             key = str(task.get("key") or "").strip()
             title = str(task.get("title") or "Sin título")
@@ -865,7 +856,7 @@ def standup_form_modal(
     return {
         "type": "modal",
         "callback_id": "standup_form_modal",
-        "title": {"type": "plain_text", "text": "Compass DSU"},
+        "title": {"type": "plain_text", "text": "Update diario"},
         "submit": {"type": "plain_text", "text": "Enviar update"},
         "close": {"type": "plain_text", "text": "Cancelar"},
         "blocks": blocks,
