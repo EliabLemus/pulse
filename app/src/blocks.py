@@ -719,7 +719,7 @@ def standup_dm_message(
             "block_id": "intro",
             "text": {
                 "type": "mrkdwn",
-                "text": "Un momento para alinear el día. Comparte tu avance, foco y bloqueos en un solo update.",
+                "text": "Comparte tu update.",
             },
         },
     ]

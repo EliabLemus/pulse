@@ -76,9 +76,7 @@ def test_compass_dsu_prompt_uses_the_compass_brand_without_pulse_copy():
     blocks = message["blocks"]
 
     assert blocks[0]["text"]["text"] == "🧭 Compass DSU"
-    assert blocks[1]["text"]["text"] == (
-        "Un momento para alinear el día. Comparte tu avance, foco y bloqueos en un solo update."
-    )
+    assert blocks[1]["text"]["text"] == "Comparte tu update."
     assert "Pulse" not in " ".join(
         block.get("text", {}).get("text", "") for block in blocks
     )

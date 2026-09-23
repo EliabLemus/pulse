@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -50,11 +49,12 @@ class TestFormatStandup:
         result = _format_standup("U1", ["Yesterday work", "Today work", "None"])
         assert "<@U1>" in result
 
-    def test_includes_date(self):
+    def test_starts_with_the_contributor_not_a_daily_header(self):
         from handlers import _format_standup
 
         result = _format_standup("U1", ["y", "t", "b"])
-        assert datetime.utcnow().strftime("%Y") in result
+        assert result.startswith("*<@U1>*")
+        assert "Avances de" not in result
 
     def test_blockers_none_text(self):
         from handlers import _format_standup
@@ -98,7 +98,7 @@ class TestFormatStandup:
         result = _format_standup("U1", ["ayer", "hoy", "sin bloqueos"], questions=questions)
         assert "📋" not in result
         assert "✅" not in result
-        assert re.search(r"\*Avances de <@U1>\* - \d{1,2} de \w+ de \d{4}", result)
+        assert result.startswith("*<@U1>*")
 
     def test_mood_included_when_provided(self):
         from handlers import _format_standup
@@ -611,21 +611,21 @@ class TestSingleFormEdit:
         ]
         assert "C1" not in channels_posted  # no duplicate in the channel
 
-    def test_edit_falls_back_to_thread_reply_without_stored_ts(self):
+    def test_edit_falls_back_to_a_root_message_without_stored_ts(self):
         import handlers
 
         client = MagicMock()
         db_mock = MagicMock()
         db_mock.get_standup_by_id.return_value = {}
-        db_mock.get_daily_thread_ts.return_value = "999.888"
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", self._edit_session(), client)
 
         client.chat_update.assert_not_called()
-        thread_reply = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts") == "999.888")
-        assert "✏️" in thread_reply.kwargs["text"]
+        channel_post = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C1")
+        assert "thread_ts" not in channel_post.kwargs
+        assert "✏️" in channel_post.kwargs["text"]
 
-    def test_edit_falls_back_to_thread_reply_when_update_fails(self):
+    def test_edit_falls_back_to_a_root_message_when_update_fails(self):
         import handlers
 
         client = MagicMock()
@@ -635,12 +635,12 @@ class TestSingleFormEdit:
             "message_channel": "C1",
             "message_ts": "111.222",
         }
-        db_mock.get_daily_thread_ts.return_value = "999.888"
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", self._edit_session(), client)
 
-        thread_reply = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts") == "999.888")
-        assert "✏️" in thread_reply.kwargs["text"]
+        channel_post = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C1")
+        assert "thread_ts" not in channel_post.kwargs
+        assert "✏️" in channel_post.kwargs["text"]
 
     def test_blocker_escalation_is_appended_after_the_update(self):
         import handlers
@@ -664,7 +664,7 @@ class TestSingleFormEdit:
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", session, client)
 
-        update = next(c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts"))
+        update = next(c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C1")
         escalation = "<@UMANAGER> — bloqueo reportado por <@U1>"
         assert update.endswith(escalation)
         assert update.index("Esperando acceso") < update.index(escalation)
@@ -691,6 +691,31 @@ class TestSingleFormEdit:
             handlers._complete_standup("U1", session, client)
 
         db_mock.set_standup_message.assert_called_once_with("T1", 42, "C1", "555.666")
+
+    def test_submission_posts_one_root_message_for_its_own_thread(self):
+        import handlers
+
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "555.666"}
+        db_mock = MagicMock()
+        db_mock.save_standup.return_value = 42
+        db_mock.get_standup_schedule_for_channel.return_value = {"channel_id": "C1", "notify_on_report": True}
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Ayer", "Hoy", "Bloqueos"],
+            answers=["avance", "foco", "sin bloqueos"],
+        )
+
+        with patch.dict(sys.modules, {"db": db_mock}):
+            handlers._complete_standup("U1", session, client)
+
+        channel_posts = [call.kwargs for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "C1"]
+        assert len(channel_posts) == 1
+        assert "thread_ts" not in channel_posts[0]
+        assert channel_posts[0]["text"].startswith("*<@U1>*")
+        assert "Compass DSU —" not in channel_posts[0]["text"]
 
 
 # ---------------------------------------------------------------------------

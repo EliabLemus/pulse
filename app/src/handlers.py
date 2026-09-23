@@ -228,33 +228,14 @@ def _next_run_text(schedule: dict) -> str:
 _DEFAULT_LABELS = ["✅ Yesterday", "🎯 Today", "🚧 Blockers"]
 
 
-_MESES = [
-    "enero",
-    "febrero",
-    "marzo",
-    "abril",
-    "mayo",
-    "junio",
-    "julio",
-    "agosto",
-    "septiembre",
-    "octubre",
-    "noviembre",
-    "diciembre",
-]
-
-
 def _format_standup(
     user_id: str, answers: list[str], mood: str | None = None, questions: list[str] | None = None
 ) -> str:
     """Format collected answers into a structured standup post."""
     import blocks as _blocks  # noqa: PLC0415
 
-    now = datetime.now(timezone.utc)
-    date_str = f"{now.day} de {_MESES[now.month - 1]} de {now.year}"
-
     labels = questions or _DEFAULT_LABELS
-    parts = [f"*Avances de <@{user_id}>* - {date_str}\n"]
+    parts = [f"*<@{user_id}>*"]
     for i, label in enumerate(labels):
         raw = answers[i] if i < len(answers) else "—"
         # Detect "no blockers" only for the last default question
@@ -552,39 +533,9 @@ def _complete_standup(user_id: str, session, client) -> None:
             except Exception as e:
                 logger.warning("Unexpected error in _complete_standup applying autolink: %s", e)
 
-            # Always post individual standups in a daily thread, scoped by
-            # schedule so Morning and Evening standups don't share a thread.
-            now_utc = datetime.now(timezone.utc)
-            today_str = now_utc.strftime("%Y-%m-%d")
-            schedule_id = int(getattr(session, "schedule_id", 0) or sched_config.get("id") or 0)
-            thread_key = f"{session.team_id}:{channel}:{today_str}:{schedule_id}"
-            parent_ts = _daily_thread_cache.get(thread_key)
-
-            if not parent_ts:
-                # Check DB first — the in-memory cache is lost on pod restart.
-                try:
-                    parent_ts = _db.get_daily_thread_ts(session.team_id, channel, today_str, schedule_id)
-                except Exception:
-                    parent_ts = None
-
-            if not parent_ts:
-                # Create parent message for today's thread — polished like competitors
-                standup_name = sched_config.get("name") or session.standup_name or "Team Standup"
-                display_date = f"{now_utc.day} de {_MESES[now_utc.month - 1]}"
-                parent = client.chat_postMessage(
-                    channel=channel,
-                    text=f"*{standup_name}* — {display_date}",
-                )
-                parent_ts = parent["ts"]
-                try:
-                    _db.upsert_daily_thread(session.team_id, channel, today_str, parent_ts, schedule_id)
-                except Exception as e:
-                    logger.warning("Could not persist daily thread ts: %s", e)
-
-            _daily_thread_cache[thread_key] = parent_ts
-
-            # Mark edits so teammates can tell which message is the latest
-            # version when we cannot update the original in place.
+            # Each contributor owns a root channel message.  Its native Slack
+            # thread is the place for the team's follow-up, so never nest DSUs
+            # under a shared daily parent.
             channel_text = f"✏️ *Updated standup*\n{formatted}" if is_edit else formatted
 
             # Prefer updating the original message in place on edits; only
@@ -607,7 +558,6 @@ def _complete_standup(user_id: str, session, client) -> None:
                 response = client.chat_postMessage(
                     channel=channel,
                     text=channel_text,
-                    thread_ts=parent_ts,
                     unfurl_links=False,
                 )
                 # Remember where this standup lives so future edits update it
@@ -624,7 +574,7 @@ def _complete_standup(user_id: str, session, client) -> None:
                 logger.info("Updated standup message in place for %s in %s", user_id, channel)
             else:
                 logger.info(
-                    "Posted %s for %s to %s (thread)",
+                    "Posted root %s for %s to %s",
                     "standup update" if is_edit else "standup",
                     user_id,
                     channel,
