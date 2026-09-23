@@ -3,15 +3,16 @@
 set -euo pipefail
 
 PUBLIC_BASE='https://nexus-2.tailf73d68.ts.net/pulse'
-PROBE_BASE='https://r.jina.ai/https://nexus-2.tailf73d68.ts.net/pulse'
 CADDYFILE='/Users/openjaime/Caddyfile'
 
 probe() {
-  local path=$1 expected=$2 body status
-  body=$(curl --noproxy '*' -fsS --max-time 45 "${PROBE_BASE}${path}" 2>/dev/null || true)
+  local path=$1 expected=$2 response body status
+  response=$(curl --noproxy '*' -sS --max-time 45 -w $'\n%{http_code}' "${PUBLIC_BASE}${path}" 2>/dev/null || true)
+  status=${response##*$'\n'}
+  body=${response%$'\n'*}
   case "$expected" in
-    health) [[ "$body" == *'"status":"ok"'* ]] ;;
-    method) [[ "$body" == *'405'* || "$body" == *'Method Not Allowed'* ]] ;;
+    health) [[ "$status" == '200' && "$body" =~ '"status"'[[:space:]]*':'[[:space:]]*'"ok"' ]] ;;
+    method) [[ "$status" == '405' ]] ;;
   esac
 }
 
