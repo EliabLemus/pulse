@@ -704,6 +704,14 @@ def standup_dm_message(
     compass_tasks: list[dict] | None = None,
 ) -> dict:
     """DM entrypoint for the one-form standup capture."""
+    sprint_name = ""
+    if isinstance(compass_tasks, dict):
+        sprint_name = str(compass_tasks.get("sprint_name") or "")
+        compass_tasks = [
+            task
+            for task in compass_tasks.get("tasks", [])
+            if str(task.get("statusCategory") or "").lower() != "done"
+        ]
     blocks = [
         {
             "type": "section",
@@ -715,7 +723,7 @@ def standup_dm_message(
         },
     ]
     if compass_tasks:
-        lines = ["*Esta semana*"]
+        lines = [f"*{sprint_name}*" if sprint_name else "*Esta semana*"]
         for task in compass_tasks:
             key = str(task.get("key") or "Sin clave")
             title = str(task.get("title") or "Sin título")
@@ -815,12 +823,20 @@ def standup_form_modal(
     tasks retain the private context from the DM and offer optional progress
     fields; submission syncs non-empty values back to Compass.
     """
+    sprint_name = ""
+    if isinstance(compass_tasks, dict):
+        sprint_name = str(compass_tasks.get("sprint_name") or "")
+        compass_tasks = [
+            task
+            for task in compass_tasks.get("tasks", [])
+            if str(task.get("statusCategory") or "").lower() != "done"
+        ]
     previous_answers = previous_answers or []
     compass_tasks = (compass_tasks or [])[:5]
     blocks: list[dict] = []
     ticket_template = "\n".join(f"{task.get('key') or 'Sin clave'}: " for task in compass_tasks)
     if compass_tasks:
-        task_lines = ["*Esta semana*"]
+        task_lines = [f"*{sprint_name}*" if sprint_name else "*Esta semana*"]
         for task in compass_tasks:
             key = str(task.get("key") or "").strip()
             title = str(task.get("title") or "Sin título")

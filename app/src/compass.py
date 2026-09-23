@@ -76,8 +76,12 @@ class CompassClient:
         *,
         team: str,
         max_tasks_per_email: int = 5,
-    ) -> dict[str, list[dict[str, Any]]]:
-        """Return open active-sprint work, grouped by normalized assignee email."""
+    ) -> dict[str, Any]:
+        """Return the sprint name plus open work, grouped by assignee email.
+
+        Completed work (``statusCategory: done``) never reaches the output:
+        a DSU should ask about what remains, not celebrate history.
+        """
         normalized = {email.strip().lower() for email in emails if isinstance(email, str) and email.strip()}
         assignments: dict[str, list[dict[str, Any]]] = {email: [] for email in normalized}
         if not assignments:
@@ -86,6 +90,10 @@ class CompassClient:
         response = _mcp_text_json(self._call_mcp("get_active_sprint", {"team": team}))
         if response.get("active") is not True:
             return assignments
+        context: dict[str, Any] = dict(assignments)
+        sprint = response.get("sprint")
+        if isinstance(sprint, dict) and sprint.get("name"):
+            context["sprint_name"] = str(sprint["name"])
 
         for task in response.get("tasks") or []:
             if not isinstance(task, dict):
@@ -102,7 +110,8 @@ class CompassClient:
         for email, tasks in assignments.items():
             tasks.sort(key=lambda task: (str(task.get("dueDate") or ""), str(task.get("key") or "")))
             assignments[email] = tasks[:max_tasks_per_email]
-        return assignments
+        context.update(assignments)
+        return context
 
 
 def _assignee_email(value: object) -> str:

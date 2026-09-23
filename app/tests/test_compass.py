@@ -42,6 +42,25 @@ def test_active_sprint_assignments_returns_empty_context_when_no_sprint_is_activ
     assert client.active_sprint_assignments(["alice@zubale.com"], team="techops") == {"alice@zubale.com": []}
 
 
+def test_active_sprint_context_carries_the_sprint_name():
+    client = CompassClient("cmp_test")
+    client._call_mcp = MagicMock(
+        return_value={
+            "content": [
+                {
+                    "type": "text",
+                    "text": '{"active":true,"sprint":{"name":"Sprint 2"},"tasks":[{"key":"TOP-1","statusCategory":"todo","assigneeEmail":"alice@zubale.com"}]}',
+                }
+            ]
+        }
+    )
+
+    context = client.active_sprint_assignments(["alice@zubale.com"], team="techops")
+
+    assert context["sprint_name"] == "Sprint 2"
+    assert [task["key"] for task in context["alice@zubale.com"]] == ["TOP-1"]
+
+
 def test_active_sprint_assignments_caps_each_member_at_five_tasks():
     client = CompassClient("cmp_test")
     tasks = [

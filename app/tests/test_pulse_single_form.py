@@ -93,6 +93,29 @@ def test_pulse_form_without_tasks_has_no_template():
     assert all("initial_value" not in block["element"] for block in modal["blocks"])
 
 
+def test_sprint_context_uses_the_sprint_name_and_hides_completed_tickets():
+    context = {
+        "sprint_name": "Sprint 2",
+        "tasks": [
+            {"key": "TECH-17", "title": "Slack Bot", "statusCategory": "todo"},
+            {"key": "TECH-2", "title": "Completed ticket", "statusCategory": "done"},
+            {"key": "TECH-34", "title": "AI Hub", "statusCategory": "active"},
+        ],
+    }
+
+    dm = standup_dm_message(QUESTIONS, "Compass DSU", compass_tasks=context)
+    modal = standup_form_modal(QUESTIONS, "Compass DSU", compass_tasks=context)
+
+    dm_context = next(b for b in dm["blocks"] if b.get("block_id") == "compass_context")
+    assert dm_context["text"]["text"].startswith("*Sprint 2*")
+    assert "TECH-2" not in dm_context["text"]["text"]
+    modal_context = modal["blocks"][0]
+    assert modal_context["text"]["text"].startswith("*Sprint 2*")
+    assert "TECH-2" not in modal_context["text"]["text"]
+    inputs = [b for b in modal["blocks"] if b["type"] == "input"]
+    assert all("TECH-2" not in b["element"]["initial_value"] for b in inputs)
+
+
 def test_pulse_form_templates_the_three_questions_with_ticket_keys():
     modal = standup_form_modal(
         QUESTIONS,
