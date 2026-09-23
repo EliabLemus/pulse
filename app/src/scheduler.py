@@ -466,7 +466,7 @@ def _send_standup_to_workspace(team_id: str, bot_token: str, channel_id: str, sc
                 compass_tasks=member_compass_tasks,
             )
             _slack_dm_with_retry(
-                client, user_id, team_id=team_id, text="Comparte tu update.", **dm_msg
+                client, user_id, team_id=team_id, text="Comparte tu avance.", **dm_msg
             )
 
             state_store.start(
@@ -677,7 +677,7 @@ def send_pending_reminders(team_id: str, bot_token: str, schedule_id: int) -> No
                 client,
                 user_id,
                 team_id=team_id,
-                text=f"Recordatorio: falta tu update para *{label}*. Responde por aquí.",
+                text=f"Recordatorio: falta tu avance para *{label}*. Responde por aquí.",
             )
         except Exception as exc:
             logger.warning("Failed pending reminder DM to %s / %s: %s", team_id, user_id, exc)
@@ -692,7 +692,7 @@ def close_window(team_id: str, bot_token: str, schedule_id: int) -> None:
     if not channel_id:
         logger.warning("Cannot close standup window for %s/%s: no channel", team_id, schedule_id)
         return
-    text = "\n".join(f"Sin update: <@{user_id}>" for user_id in pending)
+    text = "\n".join(f"Sin avance: <@{user_id}>" for user_id in pending)
     client = WebClient(token=_fresh_bot_token(team_id, bot_token))
     try:
         _call_with_auth_retry(team_id, client, lambda current: current.chat_postMessage(channel=channel_id, text=text))

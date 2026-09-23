@@ -718,7 +718,7 @@ def standup_dm_message(
             "block_id": "intro",
             "text": {
                 "type": "mrkdwn",
-                "text": "Comparte tu update.",
+                "text": "Comparte tu avance.",
             },
         },
     ]
@@ -745,7 +745,7 @@ def standup_dm_message(
                     {
                         "type": "button",
                         "action_id": "fill_in_form",
-                        "text": {"type": "plain_text", "text": "Completar mi update", "emoji": True},
+                        "text": {"type": "plain_text", "text": "Completar mi avance", "emoji": True},
                         "style": "primary",
                         "value": "fill_in_form",
                     },
@@ -756,10 +756,10 @@ def standup_dm_message(
                         "style": "danger",
                         "value": "skip_standup",
                         "confirm": {
-                            "title": {"type": "plain_text", "text": "¿Omitir update?"},
+                            "title": {"type": "plain_text", "text": "¿Omitir tu avance?"},
                             "text": {
                                 "type": "plain_text",
-                                "text": "Sin update tuyo hoy. Puedes revertirlo después con «Completar mi update».",
+                                "text": "Sin avance tuyo hoy. Puedes revertirlo después con «Completar mi avance».",
                             },
                             "confirm": {"type": "plain_text", "text": "Sí, omitir"},
                             "deny": {"type": "plain_text", "text": "Cancelar"},
@@ -795,7 +795,7 @@ def standup_resume_message() -> dict:
                     {
                         "type": "button",
                         "action_id": "resume_standup",
-                        "text": {"type": "plain_text", "text": "Completar mi update", "emoji": True},
+                        "text": {"type": "plain_text", "text": "Completar mi avance", "emoji": True},
                         "style": "primary",
                         "value": "resume_standup",
                     }
@@ -872,8 +872,8 @@ def standup_form_modal(
     return {
         "type": "modal",
         "callback_id": "standup_form_modal",
-        "title": {"type": "plain_text", "text": "Update diario"},
-        "submit": {"type": "plain_text", "text": "Enviar update"},
+        "title": {"type": "plain_text", "text": "Avance diario"},
+        "submit": {"type": "plain_text", "text": "Enviar avance"},
         "close": {"type": "plain_text", "text": "Cancelar"},
         "blocks": blocks,
     }

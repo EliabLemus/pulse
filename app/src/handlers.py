@@ -167,7 +167,7 @@ def _standup_saved_confirmation(schedule: dict, creator_id: str, is_edit: bool =
     days = schedule.get("schedule_days") or "mon,tue,wed,thu,fri"
     participants = list(schedule.get("participants") or [])
 
-    verb = "updated" if is_edit else "created"
+    verb = "actualizado" if is_edit else "creado"
     lines = [
         f"✅ *{name}* {verb}.",
         "",
@@ -412,7 +412,7 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
     dm = _blocks.standup_dm_message(session.questions, session.standup_name or "Standup")
     client.chat_postMessage(
         channel=user_id,
-        text="Comparte tu update.",
+        text="Comparte tu avance.",
         blocks=dm["blocks"],
     )
 
@@ -455,14 +455,14 @@ def _complete_standup(user_id: str, session, client) -> None:
         )
 
     confirmation_text = (
-        "✏️ *Standup updated!* Your edits have been saved."
+        "✏️ *Avance actualizado.* Tus cambios quedaron guardados."
         if is_edit
-        else "✅ *Standup submitted!* You can edit your responses within 30 minutes."
+        else "✅ *Avance enviado.* Puedes editarlo durante 30 minutos."
     )
     # Block Kit confirmation with edit button
     client.chat_postMessage(
         channel=user_id,
-        text="✏️ Standup updated!" if is_edit else "✅ Standup submitted!",
+        text="✏️ Avance actualizado." if is_edit else "✅ Avance enviado.",
         blocks=[
             {
                 "type": "section",
@@ -476,7 +476,7 @@ def _complete_standup(user_id: str, session, client) -> None:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "✏️ Edit responses"},
+                        "text": {"type": "plain_text", "text": "✏️ Editar avance"},
                         "action_id": "standup_edit",
                         "value": str(standup_id) if standup_id else "0",
                         "style": "primary",
@@ -536,7 +536,7 @@ def _complete_standup(user_id: str, session, client) -> None:
             # Each contributor owns a root channel message.  Its native Slack
             # thread is the place for the team's follow-up, so never nest DSUs
             # under a shared daily parent.
-            channel_text = f"✏️ *Updated standup*\n{formatted}" if is_edit else formatted
+            channel_text = f"✏️ *Avance actualizado*\n{formatted}" if is_edit else formatted
 
             # Prefer updating the original message in place on edits; only
             # fall back to a new thread reply when there is no stored pointer
@@ -852,7 +852,7 @@ def _handle_dm_message(event, client, logger, *, team_id: str | None = None) -> 
 
     client.chat_postMessage(
         channel=user_id,
-        text="Usa el botón *Completar update* del mensaje de Pulse para enviar las tres respuestas en un solo formulario.",
+        text="Usa el botón *Completar mi avance* del mensaje del bot para enviar las tres respuestas en un solo formulario.",
     )
 
 
@@ -1079,7 +1079,7 @@ def register_handlers(app: App) -> None:
         if not session:
             client.chat_postMessage(
                 channel=user_id,
-                text="⚠️ No pude iniciar tu update. Escribe `standup` para intentar de nuevo.",
+                text="⚠️ No pude iniciar tu avance. Escribe `standup` para intentar de nuevo.",
             )
             return
         import blocks as _blocks  # noqa: PLC0415
@@ -1554,7 +1554,7 @@ def register_handlers(app: App) -> None:
         ack()
         client.chat_postMessage(
             channel=body["user"]["id"],
-            text="Este flujo ya no captura mood. Usa *Completar update* en el mensaje más reciente de Pulse.",
+            text="Este flujo ya no captura mood. Usa *Completar mi avance* en el mensaje más reciente del bot.",
         )
 
     @app.command("/standup")
@@ -1846,7 +1846,7 @@ def register_handlers(app: App) -> None:
         if failed_task_keys:
             client.chat_postMessage(
                 channel=user_id,
-                text="Tu update se publicó, pero no pude actualizar Compass para: " + ", ".join(failed_task_keys),
+                text="Tu avance se publicó, pero no pude actualizar Compass para: " + ", ".join(failed_task_keys),
             )
         elif synced_count:
             client.chat_postMessage(

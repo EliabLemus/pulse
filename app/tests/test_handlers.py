@@ -379,7 +379,7 @@ class TestSingleFormSubmission:
         complete.assert_called_once_with("U1", session, client)
         assert (
             client.chat_postMessage.call_args.kwargs["text"]
-            == "Tu update se publicó, pero no pude actualizar Compass para: TOP-1"
+            == "Tu avance se publicó, pero no pude actualizar Compass para: TOP-1"
         )
 
 
@@ -784,7 +784,7 @@ class TestStartStandupSession:
 
         texts = [c.kwargs.get("text", "") for c in client.chat_postMessage.call_args_list]
         assert not any("already" in t.lower() for t in texts)
-        assert "Comparte tu update." in texts
+        assert "Comparte tu avance." in texts
 
     def test_new_session_sends_starting_message(self):
         _ss_mock.has_session.return_value = False
@@ -810,7 +810,7 @@ class TestStartStandupSession:
 
         # Should post the standup-time DM (with Fill in form button)
         texts = [c.kwargs.get("text", "") for c in client.chat_postMessage.call_args_list]
-        assert "Comparte tu update." in texts
+        assert "Comparte tu avance." in texts
 
 
 # ---------------------------------------------------------------------------
@@ -864,7 +864,7 @@ class TestIncomingDMDispatch:
 
         record_answer.assert_not_called()
         client.chat_postMessage.assert_called_once()
-        assert "Completar update" in client.chat_postMessage.call_args.kwargs["text"]
+        assert "Completar mi avance" in client.chat_postMessage.call_args.kwargs["text"]
         start.assert_not_called()
 
     def test_non_dm_message_is_ignored(self):

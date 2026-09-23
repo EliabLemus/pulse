@@ -94,8 +94,8 @@ def test_pending_reminders_dm_only_the_remaining_participant():
     assert [call.kwargs["users"] for call in client.conversations_open.call_args_list] == ["U1", "U3"]
     texts = [call.kwargs["text"] for call in client.chat_postMessage.call_args_list]
     assert texts == [
-        "Recordatorio: falta tu update para *Pulse Daily*. Responde por aquí.",
-        "Recordatorio: falta tu update para *Pulse Daily*. Responde por aquí.",
+        "Recordatorio: falta tu avance para *Pulse Daily*. Responde por aquí.",
+        "Recordatorio: falta tu avance para *Pulse Daily*. Responde por aquí.",
     ]
 
 
@@ -126,7 +126,7 @@ def test_window_close_posts_each_remaining_user_to_the_schedule_channel():
 
     call = client.chat_postMessage.call_args.kwargs
     assert call["channel"] == "C1"
-    assert call["text"] == "Sin update: <@U1>\nSin update: <@U2>\nSin update: <@U3>"
+    assert call["text"] == "Sin avance: <@U1>\nSin avance: <@U2>\nSin avance: <@U3>"
 
 
 def test_registering_the_window_jobs_uses_schedule_timezone_and_days():

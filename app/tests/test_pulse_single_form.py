@@ -51,7 +51,7 @@ def test_pulse_skip_confirm_mentions_the_recovery_path():
     )
 
     confirm_text = skip["confirm"]["text"]["text"]
-    assert "Completar mi update" in confirm_text
+    assert "Completar mi avance" in confirm_text
 
 
 def test_pulse_skip_confirmation_message_offers_the_resume_button():
@@ -59,15 +59,15 @@ def test_pulse_skip_confirmation_message_offers_the_resume_button():
     blocks = message["blocks"]
 
     buttons = [e for b in blocks if b["type"] == "actions" for e in b["elements"]]
-    assert ("resume_standup", "Completar mi update") in [(e["action_id"], e["text"]["text"]) for e in buttons]
+    assert ("resume_standup", "Completar mi avance") in [(e["action_id"], e["text"]["text"]) for e in buttons]
     assert any(e.get("style") == "primary" for e in buttons)
 
 
 def test_pulse_form_has_exactly_the_three_dsu_questions():
     modal = standup_form_modal(QUESTIONS, "Compass DSU")
 
-    assert modal["title"]["text"] == "Update diario"
-    assert modal["submit"]["text"] == "Enviar update"
+    assert modal["title"]["text"] == "Avance diario"
+    assert modal["submit"]["text"] == "Enviar avance"
     assert [block["label"]["text"] for block in modal["blocks"]] == QUESTIONS
     assert len(modal["blocks"]) == 3
 
@@ -78,7 +78,7 @@ def test_compass_dsu_prompt_uses_the_compass_brand_without_pulse_copy():
 
     assert not any(block["type"] == "header" for block in blocks)
     intro = next(block for block in blocks if block.get("block_id") == "intro")
-    assert intro["text"]["text"] == "Comparte tu update."
+    assert intro["text"]["text"] == "Comparte tu avance."
     visible_copy = " ".join(
         block.get("text", {}).get("text", "") for block in blocks
     )
