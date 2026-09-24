@@ -664,7 +664,9 @@ class TestSingleFormEdit:
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", session, client)
 
-        update = next(c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C1")
+        update = next(
+            c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C1"
+        )
         escalation = "<@UMANAGER> — bloqueo reportado por <@U1>"
         assert update.endswith(escalation)
         assert update.index("Esperando acceso") < update.index(escalation)
@@ -711,7 +713,9 @@ class TestSingleFormEdit:
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", session, client)
 
-        channel_posts = [call.kwargs for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "C1"]
+        channel_posts = [
+            call.kwargs for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "C1"
+        ]
         assert len(channel_posts) == 1
         assert "thread_ts" not in channel_posts[0]
         assert channel_posts[0]["text"].startswith("*<@U1>*")

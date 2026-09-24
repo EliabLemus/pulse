@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import http.client
 import importlib.util
-import os
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-
 
 MODULE_PATH = Path(__file__).with_name("main.py")
 spec = importlib.util.spec_from_file_location("slack_relay", MODULE_PATH)

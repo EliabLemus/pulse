@@ -39,11 +39,7 @@ def test_dm_entry_asks_for_an_avance():
 
 def test_skip_confirmation_speaks_avance():
     dm = blocks.standup_dm_message(QUESTIONS, "Compass DSU", compass_tasks=COMPASS_CONTEXT)
-    skip = next(
-        element
-        for element in dm["blocks"][-1]["elements"]
-        if element.get("action_id") == "skip_standup"
-    )
+    skip = next(element for element in dm["blocks"][-1]["elements"] if element.get("action_id") == "skip_standup")
     confirm = skip["confirm"]
 
     assert confirm["title"]["text"] == "¿Omitir tu avance?"

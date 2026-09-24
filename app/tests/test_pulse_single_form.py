@@ -79,9 +79,7 @@ def test_compass_dsu_prompt_uses_the_compass_brand_without_pulse_copy():
     assert not any(block["type"] == "header" for block in blocks)
     intro = next(block for block in blocks if block.get("block_id") == "intro")
     assert intro["text"]["text"] == "Comparte tu avance."
-    visible_copy = " ".join(
-        block.get("text", {}).get("text", "") for block in blocks
-    )
+    visible_copy = " ".join(block.get("text", {}).get("text", "") for block in blocks)
     assert "Compass" not in visible_copy
     assert "Pulse" not in visible_copy
 

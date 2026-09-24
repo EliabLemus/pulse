@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "deploy/check-compass-dsu-endpoints.sh"
 PUBLIC_BASE = "https://nexus-2.tailf73d68.ts.net/pulse"
@@ -48,9 +47,7 @@ printf '%s\\n' "$url" >> "{calls}"
                 f"#!/bin/bash\nprintf '%s %s\\n' '{command}' \"$*\" >> '{calls}'\n",
             )
         env = os.environ | {"PATH": f"{bin_dir}:{os.environ['PATH']}"}
-        result = subprocess.run(
-            ["bash", str(SCRIPT)], text=True, capture_output=True, env=env, check=False
-        )
+        result = subprocess.run(["bash", str(SCRIPT)], text=True, capture_output=True, env=env, check=False)
         return result, calls.read_text()
 
 

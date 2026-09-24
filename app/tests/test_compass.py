@@ -67,7 +67,9 @@ def test_active_sprint_assignments_caps_each_member_at_five_tasks():
         {"key": f"TOP-{number}", "statusCategory": "todo", "assigneeEmail": "alice@zubale.com"}
         for number in range(7, 0, -1)
     ]
-    client._call_mcp = MagicMock(return_value={"content": [{"type": "text", "text": json.dumps({"active": True, "tasks": tasks})}]})
+    client._call_mcp = MagicMock(
+        return_value={"content": [{"type": "text", "text": json.dumps({"active": True, "tasks": tasks})}]}
+    )
 
     assignments = client.active_sprint_assignments(["alice@zubale.com"], team="techops")
 

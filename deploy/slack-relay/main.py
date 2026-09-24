@@ -13,7 +13,6 @@ import urllib.error
 import urllib.request
 from http import HTTPStatus
 
-
 UPSTREAM_BASE = os.environ.get("UPSTREAM_BASE", "").rstrip("/")
 ALLOWED_PATHS = frozenset({"/slack/events", "/slack/interactions"})
 FORWARDED_HEADERS = frozenset(
@@ -54,14 +53,8 @@ class SlackRelayHandler(http.server.BaseHTTPRequestHandler):
             return
 
         body = self.rfile.read(content_length)
-        headers = {
-            key: value
-            for key, value in self.headers.items()
-            if key.lower() in FORWARDED_HEADERS
-        }
-        request = urllib.request.Request(
-            f"{UPSTREAM_BASE}{self.path}", data=body, headers=headers, method="POST"
-        )
+        headers = {key: value for key, value in self.headers.items() if key.lower() in FORWARDED_HEADERS}
+        request = urllib.request.Request(f"{UPSTREAM_BASE}{self.path}", data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=2.5) as response:
                 response_body = response.read()
