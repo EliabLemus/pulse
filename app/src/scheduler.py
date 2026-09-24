@@ -465,9 +465,7 @@ def _send_standup_to_workspace(team_id: str, bot_token: str, channel_id: str, sc
                 standup_name,
                 compass_tasks=member_compass_tasks,
             )
-            _slack_dm_with_retry(
-                client, user_id, team_id=team_id, text="Comparte tu avance.", **dm_msg
-            )
+            _slack_dm_with_retry(client, user_id, team_id=team_id, text="Comparte tu avance.", **dm_msg)
 
             state_store.start(
                 cache_key,

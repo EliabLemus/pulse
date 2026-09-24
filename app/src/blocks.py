@@ -708,9 +708,7 @@ def standup_dm_message(
     if isinstance(compass_tasks, dict):
         sprint_name = str(compass_tasks.get("sprint_name") or "")
         compass_tasks = [
-            task
-            for task in compass_tasks.get("tasks", [])
-            if str(task.get("statusCategory") or "").lower() != "done"
+            task for task in compass_tasks.get("tasks", []) if str(task.get("statusCategory") or "").lower() != "done"
         ]
     blocks = [
         {
@@ -827,9 +825,7 @@ def standup_form_modal(
     if isinstance(compass_tasks, dict):
         sprint_name = str(compass_tasks.get("sprint_name") or "")
         compass_tasks = [
-            task
-            for task in compass_tasks.get("tasks", [])
-            if str(task.get("statusCategory") or "").lower() != "done"
+            task for task in compass_tasks.get("tasks", []) if str(task.get("statusCategory") or "").lower() != "done"
         ]
     previous_answers = previous_answers or []
     compass_tasks = (compass_tasks or [])[:5]

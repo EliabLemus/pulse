@@ -69,7 +69,6 @@ class CompassClient:
             return {"mock": True}
         return self._call_mcp("post_comment", {"key": key, "body": body})
 
-
     def active_sprint_assignments(
         self,
         emails: list[str],
