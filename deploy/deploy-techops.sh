@@ -47,6 +47,14 @@ export COMPASS_API_KEY
 export COMPASS_TEAM="${COMPASS_TEAM:-techops}"
 
 compose=(docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+
+# A leftover "mock" exported in the caller's shell silently overrides the
+# env-file through compose interpolation and would ship mock Compass writes
+# to production. Mock mode is rehearsal-only; strip it from this process.
+if [[ "${PULSE_COMPASS_WRITE_MODE:-}" == "mock" ]]; then
+  unset PULSE_COMPASS_WRITE_MODE
+fi
+
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --build db
 "${compose[@]}" run --rm --no-deps migrate

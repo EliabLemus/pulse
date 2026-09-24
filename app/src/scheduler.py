@@ -295,21 +295,16 @@ def _notify_delivery_failure(client: WebClient, channel_id: str, failed_count: i
 def _compass_context_for_members(
     members: list[dict],
     schedule: dict,
-    *,
-    now: datetime | None = None,
 ) -> dict[str, list[dict]]:
     """Return optional, private Compass context keyed by normalized member email."""
     api_key = os.environ.get("COMPASS_API_KEY", "").strip()
     if not api_key:
         return {}
     emails = [member.get("email", "") for member in members]
-    timezone_name = schedule.get("schedule_tz") or "UTC"
     try:
-        local_day = (now or datetime.now(tz=timezone.utc)).astimezone(pytz.timezone(timezone_name)).date()
-        assignments = CompassClient(api_key).weekly_assignments(
+        assignments = CompassClient(api_key).active_sprint_assignments(
             emails,
             team=os.environ.get("COMPASS_TEAM", "techops"),
-            local_day=local_day,
         )
         for email in emails:
             normalized_email = str(email).strip().lower()
@@ -471,7 +466,7 @@ def _send_standup_to_workspace(team_id: str, bot_token: str, channel_id: str, sc
                 compass_tasks=member_compass_tasks,
             )
             _slack_dm_with_retry(
-                client, user_id, team_id=team_id, text=f"🌅 Time for your standup! — {standup_name}", **dm_msg
+                client, user_id, team_id=team_id, text="Comparte tu avance.", **dm_msg
             )
 
             state_store.start(
@@ -682,7 +677,7 @@ def send_pending_reminders(team_id: str, bot_token: str, schedule_id: int) -> No
                 client,
                 user_id,
                 team_id=team_id,
-                text=f"Recordatorio: falta tu update para *{label}*. Responde por aquí.",
+                text=f"Recordatorio: falta tu avance para *{label}*. Responde por aquí.",
             )
         except Exception as exc:
             logger.warning("Failed pending reminder DM to %s / %s: %s", team_id, user_id, exc)
@@ -697,7 +692,7 @@ def close_window(team_id: str, bot_token: str, schedule_id: int) -> None:
     if not channel_id:
         logger.warning("Cannot close standup window for %s/%s: no channel", team_id, schedule_id)
         return
-    text = "\n".join(f"Sin update: <@{user_id}>" for user_id in pending)
+    text = "\n".join(f"Sin avance: <@{user_id}>" for user_id in pending)
     client = WebClient(token=_fresh_bot_token(team_id, bot_token))
     try:
         _call_with_auth_retry(team_id, client, lambda current: current.chat_postMessage(channel=channel_id, text=text))
@@ -954,16 +949,6 @@ def register_workspace_job(
         )
         logger.info("Registered reminder job for %s (%d min before)", team_id, reminder_minutes)
 
-    # Weekly digest job (Sunday 18:00 in workspace tz)
-    scheduler.add_job(
-        _send_weekly_digest,
-        trigger=CronTrigger(day_of_week="sun", hour=18, minute=0, timezone=tz),
-        args=[team_id, bot_token],
-        id=f"digest_{team_id}",
-        name=f"Weekly Digest — {team_id}",
-        replace_existing=True,
-    )
-
     # Manager digest job — runs daily at standup time (after standup completes)
     # Use a 30-minute offset after the standup time so responses are in by then
     standup_plus_30 = datetime(2000, 1, 1, int(hour), int(minute)) + timedelta(minutes=30)
@@ -1023,16 +1008,7 @@ def register_workspace_digests_only(
         logger.error("Invalid schedule config for %s: %s", team_id, exc)
         return
 
-    # Weekly digest
-    scheduler.add_job(
-        _send_weekly_digest,
-        trigger=CronTrigger(day_of_week="sun", hour=18, minute=0, timezone=tz),
-        args=[team_id, bot_token],
-        id=f"digest_{team_id}",
-        name=f"Weekly Digest — {team_id}",
-        replace_existing=True,
-    )
-
+    # Weekly digest job — unregistered (weekend silence; fired Sundays 18:00).
     # Manager digest
     standup_plus_30 = datetime(2000, 1, 1, int(hour), int(minute)) + timedelta(minutes=30)
     scheduler.add_job(
@@ -1096,6 +1072,20 @@ def _default_report_time(schedule_time: str) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
+_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri")
+
+
+def _enforce_weekday_days(days: str) -> str:
+    """Clamp a schedule's day list to weekdays.
+
+    Weekend silence is an owner-level product rule: Pulse never sends anything
+    on Saturday or Sunday, regardless of configuration. A day list that names
+    sat/sun is clipped to its weekdays (and to nothing, if it named none).
+    """
+    kept = [day for day in (d.strip().lower() for d in days.split(",")) if day in _WEEKDAYS]
+    return ",".join(kept)
+
+
 def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> None:
     """Register a cron job for a standup_schedules row."""
     team_id = schedule["team_id"]
@@ -1103,7 +1093,7 @@ def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> Non
     schedule_id = schedule["id"]
     schedule_time = schedule.get("schedule_time") or "09:00"
     schedule_tz = schedule.get("schedule_tz") or "UTC"
-    schedule_days = schedule.get("schedule_days", "mon,tue,wed,thu,fri")
+    schedule_days = _enforce_weekday_days(schedule.get("schedule_days", "mon,tue,wed,thu,fri"))
     channel_id = schedule.get("channel_id") or ""
     reminder_minutes = int(schedule.get("reminder_minutes") or 0)
 
@@ -1136,6 +1126,15 @@ def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> Non
     logger.info(
         "Registered schedule job %s (%s) at %s %s", schedule_id, schedule.get("name"), schedule_time, schedule_tz
     )
+
+    # Owner connection check: a daily 09:00 weekday DM with an OK button that
+    # proves the Slack/Funnel round trip. Owner-only; weekend silence applies.
+    try:
+        from owner_healthcheck import register_owner_health_check  # noqa: PLC0415
+
+        register_owner_health_check(scheduler, team_id, bot_token, schedule_tz)
+    except Exception as exc:
+        logger.warning("Could not register owner health check for %s: %s", team_id, exc)
 
     if reminder_minutes > 0:
         standup_dt = datetime(2000, 1, 1, int(hour), int(minute))

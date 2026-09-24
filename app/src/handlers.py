@@ -26,7 +26,7 @@ _daily_thread_cache: dict[str, str] = {}
 
 
 def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
-    """Comment every ticket whose "KEY: " line has content.
+    """Comment ticket progress or blockers whose "KEY: " line has content.
 
     The modal pre-fills the DSU answers with one "KEY: " line per
     session ticket.  A line left empty stays silent; a line with text
@@ -43,11 +43,13 @@ def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
 
     import blocks as _blocks  # noqa: PLC0415
 
+    # "¿Cuál es tu tarea principal para hoy?" is an intention, not progress.
+    # Keep it in the channel update but never publish it to Compass.
     answers = [
         _blocks.rich_text_to_mrkdwn(field.get("rich_text_value"))
         if field.get("rich_text_value")
         else str(field.get("value", ""))
-        for block_id, action_id in (("question_0", "answer_0"), ("question_1", "answer_1"), ("question_2", "answer_2"))
+        for block_id, action_id in (("question_0", "answer_0"), ("question_2", "answer_2"))
         if (field := values.get(block_id, {}).get(action_id, {}))
     ]
 
@@ -165,7 +167,7 @@ def _standup_saved_confirmation(schedule: dict, creator_id: str, is_edit: bool =
     days = schedule.get("schedule_days") or "mon,tue,wed,thu,fri"
     participants = list(schedule.get("participants") or [])
 
-    verb = "updated" if is_edit else "created"
+    verb = "actualizado" if is_edit else "creado"
     lines = [
         f"✅ *{name}* {verb}.",
         "",
@@ -226,33 +228,14 @@ def _next_run_text(schedule: dict) -> str:
 _DEFAULT_LABELS = ["✅ Yesterday", "🎯 Today", "🚧 Blockers"]
 
 
-_MESES = [
-    "enero",
-    "febrero",
-    "marzo",
-    "abril",
-    "mayo",
-    "junio",
-    "julio",
-    "agosto",
-    "septiembre",
-    "octubre",
-    "noviembre",
-    "diciembre",
-]
-
-
 def _format_standup(
     user_id: str, answers: list[str], mood: str | None = None, questions: list[str] | None = None
 ) -> str:
     """Format collected answers into a structured standup post."""
     import blocks as _blocks  # noqa: PLC0415
 
-    now = datetime.now(timezone.utc)
-    date_str = f"{now.day} de {_MESES[now.month - 1]} de {now.year}"
-
     labels = questions or _DEFAULT_LABELS
-    parts = [f"*Avances de <@{user_id}>* - {date_str}\n"]
+    parts = [f"*<@{user_id}>*"]
     for i, label in enumerate(labels):
         raw = answers[i] if i < len(answers) else "—"
         # Detect "no blockers" only for the last default question
@@ -429,7 +412,7 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
     dm = _blocks.standup_dm_message(session.questions, session.standup_name or "Standup")
     client.chat_postMessage(
         channel=user_id,
-        text=f"Time for your standup — {session.standup_name or 'Standup'}",
+        text="Comparte tu avance.",
         blocks=dm["blocks"],
     )
 
@@ -472,14 +455,14 @@ def _complete_standup(user_id: str, session, client) -> None:
         )
 
     confirmation_text = (
-        "✏️ *Standup updated!* Your edits have been saved."
+        "✏️ *Avance actualizado.* Tus cambios quedaron guardados."
         if is_edit
-        else "✅ *Standup submitted!* You can edit your responses within 30 minutes."
+        else "✅ *Avance enviado.* Puedes editarlo durante 30 minutos."
     )
     # Block Kit confirmation with edit button
     client.chat_postMessage(
         channel=user_id,
-        text="✏️ Standup updated!" if is_edit else "✅ Standup submitted!",
+        text="✏️ Avance actualizado." if is_edit else "✅ Avance enviado.",
         blocks=[
             {
                 "type": "section",
@@ -493,7 +476,7 @@ def _complete_standup(user_id: str, session, client) -> None:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "✏️ Edit responses"},
+                        "text": {"type": "plain_text", "text": "✏️ Editar avance"},
                         "action_id": "standup_edit",
                         "value": str(standup_id) if standup_id else "0",
                         "style": "primary",
@@ -550,40 +533,10 @@ def _complete_standup(user_id: str, session, client) -> None:
             except Exception as e:
                 logger.warning("Unexpected error in _complete_standup applying autolink: %s", e)
 
-            # Always post individual standups in a daily thread, scoped by
-            # schedule so Morning and Evening standups don't share a thread.
-            now_utc = datetime.now(timezone.utc)
-            today_str = now_utc.strftime("%Y-%m-%d")
-            schedule_id = int(getattr(session, "schedule_id", 0) or sched_config.get("id") or 0)
-            thread_key = f"{session.team_id}:{channel}:{today_str}:{schedule_id}"
-            parent_ts = _daily_thread_cache.get(thread_key)
-
-            if not parent_ts:
-                # Check DB first — the in-memory cache is lost on pod restart.
-                try:
-                    parent_ts = _db.get_daily_thread_ts(session.team_id, channel, today_str, schedule_id)
-                except Exception:
-                    parent_ts = None
-
-            if not parent_ts:
-                # Create parent message for today's thread — polished like competitors
-                standup_name = sched_config.get("name") or session.standup_name or "Team Standup"
-                display_date = f"{now_utc.day} de {_MESES[now_utc.month - 1]}"
-                parent = client.chat_postMessage(
-                    channel=channel,
-                    text=f"*{standup_name}* — {display_date}",
-                )
-                parent_ts = parent["ts"]
-                try:
-                    _db.upsert_daily_thread(session.team_id, channel, today_str, parent_ts, schedule_id)
-                except Exception as e:
-                    logger.warning("Could not persist daily thread ts: %s", e)
-
-            _daily_thread_cache[thread_key] = parent_ts
-
-            # Mark edits so teammates can tell which message is the latest
-            # version when we cannot update the original in place.
-            channel_text = f"✏️ *Updated standup*\n{formatted}" if is_edit else formatted
+            # Each contributor owns a root channel message.  Its native Slack
+            # thread is the place for the team's follow-up, so never nest DSUs
+            # under a shared daily parent.
+            channel_text = f"✏️ *Avance actualizado*\n{formatted}" if is_edit else formatted
 
             # Prefer updating the original message in place on edits; only
             # fall back to a new thread reply when there is no stored pointer
@@ -605,7 +558,6 @@ def _complete_standup(user_id: str, session, client) -> None:
                 response = client.chat_postMessage(
                     channel=channel,
                     text=channel_text,
-                    thread_ts=parent_ts,
                     unfurl_links=False,
                 )
                 # Remember where this standup lives so future edits update it
@@ -622,7 +574,7 @@ def _complete_standup(user_id: str, session, client) -> None:
                 logger.info("Updated standup message in place for %s in %s", user_id, channel)
             else:
                 logger.info(
-                    "Posted %s for %s to %s (thread)",
+                    "Posted root %s for %s to %s",
                     "standup update" if is_edit else "standup",
                     user_id,
                     channel,
@@ -900,7 +852,7 @@ def _handle_dm_message(event, client, logger, *, team_id: str | None = None) -> 
 
     client.chat_postMessage(
         channel=user_id,
-        text="Usa el botón *Completar update* del mensaje de Pulse para enviar las tres respuestas en un solo formulario.",
+        text="Usa el botón *Completar mi avance* del mensaje del bot para enviar las tres respuestas en un solo formulario.",
     )
 
 
@@ -1127,7 +1079,7 @@ def register_handlers(app: App) -> None:
         if not session:
             client.chat_postMessage(
                 channel=user_id,
-                text="⚠️ No pude iniciar tu update. Escribe `standup` para intentar de nuevo.",
+                text="⚠️ No pude iniciar tu avance. Escribe `standup` para intentar de nuevo.",
             )
             return
         import blocks as _blocks  # noqa: PLC0415
@@ -1602,7 +1554,7 @@ def register_handlers(app: App) -> None:
         ack()
         client.chat_postMessage(
             channel=body["user"]["id"],
-            text="Este flujo ya no captura mood. Usa *Completar update* en el mensaje más reciente de Pulse.",
+            text="Este flujo ya no captura mood. Usa *Completar mi avance* en el mensaje más reciente del bot.",
         )
 
     @app.command("/standup")
@@ -1894,7 +1846,7 @@ def register_handlers(app: App) -> None:
         if failed_task_keys:
             client.chat_postMessage(
                 channel=user_id,
-                text="Tu update se publicó, pero no pude actualizar Compass para: " + ", ".join(failed_task_keys),
+                text="Tu avance se publicó, pero no pude actualizar Compass para: " + ", ".join(failed_task_keys),
             )
         elif synced_count:
             client.chat_postMessage(
@@ -2111,3 +2063,8 @@ def register_handlers(app: App) -> None:
             say(f"⚠️ Could not save timezone: {exc}")
             return
         say(f"✅ Your timezone has been updated to *{tz_str}*.")
+
+    # Owner connection check: DM with an OK button proving the Funnel round trip.
+    from owner_healthcheck import register_health_check_actions  # noqa: PLC0415
+
+    register_health_check_actions(app)

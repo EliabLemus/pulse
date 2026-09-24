@@ -704,27 +704,26 @@ def standup_dm_message(
     compass_tasks: list[dict] | None = None,
 ) -> dict:
     """DM entrypoint for the one-form standup capture."""
+    sprint_name = ""
+    if isinstance(compass_tasks, dict):
+        sprint_name = str(compass_tasks.get("sprint_name") or "")
+        compass_tasks = [
+            task
+            for task in compass_tasks.get("tasks", [])
+            if str(task.get("statusCategory") or "").lower() != "done"
+        ]
     blocks = [
-        {
-            "type": "header",
-            "block_id": "header",
-            "text": {
-                "type": "plain_text",
-                "text": f"🟢 {standup_name}",
-                "emoji": True,
-            },
-        },
         {
             "type": "section",
             "block_id": "intro",
             "text": {
                 "type": "mrkdwn",
-                "text": "Completa tu update diario en un solo formulario. Al enviarlo, Pulse lo publicará automáticamente al equipo.",
+                "text": "Comparte tu avance.",
             },
         },
     ]
     if compass_tasks:
-        lines = ["*Compass · tareas con fecha esta semana*"]
+        lines = [f"*{sprint_name}*" if sprint_name else "*Esta semana*"]
         for task in compass_tasks:
             key = str(task.get("key") or "Sin clave")
             title = str(task.get("title") or "Sin título")
@@ -746,7 +745,7 @@ def standup_dm_message(
                     {
                         "type": "button",
                         "action_id": "fill_in_form",
-                        "text": {"type": "plain_text", "text": "Completar mi update", "emoji": True},
+                        "text": {"type": "plain_text", "text": "Completar mi avance", "emoji": True},
                         "style": "primary",
                         "value": "fill_in_form",
                     },
@@ -757,10 +756,10 @@ def standup_dm_message(
                         "style": "danger",
                         "value": "skip_standup",
                         "confirm": {
-                            "title": {"type": "plain_text", "text": "¿Omitir update?"},
+                            "title": {"type": "plain_text", "text": "¿Omitir tu avance?"},
                             "text": {
                                 "type": "plain_text",
-                                "text": "Sin update tuyo hoy. Puedes revertirlo después con «Completar mi update».",
+                                "text": "Sin avance tuyo hoy. Puedes revertirlo después con «Completar mi avance».",
                             },
                             "confirm": {"type": "plain_text", "text": "Sí, omitir"},
                             "deny": {"type": "plain_text", "text": "Cancelar"},
@@ -796,7 +795,7 @@ def standup_resume_message() -> dict:
                     {
                         "type": "button",
                         "action_id": "resume_standup",
-                        "text": {"type": "plain_text", "text": "Completar mi update", "emoji": True},
+                        "text": {"type": "plain_text", "text": "Completar mi avance", "emoji": True},
                         "style": "primary",
                         "value": "resume_standup",
                     }
@@ -824,12 +823,20 @@ def standup_form_modal(
     tasks retain the private context from the DM and offer optional progress
     fields; submission syncs non-empty values back to Compass.
     """
+    sprint_name = ""
+    if isinstance(compass_tasks, dict):
+        sprint_name = str(compass_tasks.get("sprint_name") or "")
+        compass_tasks = [
+            task
+            for task in compass_tasks.get("tasks", [])
+            if str(task.get("statusCategory") or "").lower() != "done"
+        ]
     previous_answers = previous_answers or []
     compass_tasks = (compass_tasks or [])[:5]
     blocks: list[dict] = []
     ticket_template = "\n".join(f"{task.get('key') or 'Sin clave'}: " for task in compass_tasks)
     if compass_tasks:
-        task_lines = ["*Tus tickets Compass esta semana*"]
+        task_lines = [f"*{sprint_name}*" if sprint_name else "*Esta semana*"]
         for task in compass_tasks:
             key = str(task.get("key") or "").strip()
             title = str(task.get("title") or "Sin título")
@@ -865,8 +872,8 @@ def standup_form_modal(
     return {
         "type": "modal",
         "callback_id": "standup_form_modal",
-        "title": {"type": "plain_text", "text": "Pulse — Update diario"},
-        "submit": {"type": "plain_text", "text": "Enviar update"},
+        "title": {"type": "plain_text", "text": "Avance diario"},
+        "submit": {"type": "plain_text", "text": "Enviar avance"},
         "close": {"type": "plain_text", "text": "Cancelar"},
         "blocks": blocks,
     }

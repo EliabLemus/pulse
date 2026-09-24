@@ -12,10 +12,11 @@ Pulse collects a daily update in one Slack modal and posts it automatically to t
 
 ### Qué ocurre a cada hora
 
-- **09:15 Guatemala, lunes a jueves:** Pulse envía el DM inicial.
+- **09:00 Guatemala, lunes a viernes:** verificación de conexión — Pulse envía al propietario un DM con un botón **OK**; al pulsarlo confirma que Tailscale/Funnel y Slack responden (ver [`docs/runbook-verification.md`](./docs/runbook-verification.md)).
+- **09:15 Guatemala, lunes, miércoles, jueves y viernes:** Pulse envía el DM inicial. *(Martes sin notificaciones: Sprint Planning. Sábado y domingo: silencio total.)*
 - **09:45, 10:15 y 10:45:** solo quienes siguen pendientes reciben un recordatorio por DM. Las personas que respondieron, omitieron el día o están de vacaciones quedan excluidas.
-- **11:00:** Pulse publica únicamente `Sin update: @usuario` para cada participante pendiente. **No** vuelve a resumir o mencionar los avances ya publicados en el hilo diario.
-- **Bloqueos:** el update se publica completo y la mención al responsable se añade al final, para no romper la lectura del avance.
+- **11:00:** Pulse publica únicamente `Sin avance: @usuario` para cada participante pendiente. **No** vuelve a resumir o mencionar los avances ya publicados en el hilo diario.
+- **Bloqueos:** el update se publica completo y la mención al responsable se añade al final, para no romper la lectura del avance. Respuestas negativas ("Sin bloqueos", "Ninguno", "Nada"), incluidas las respuestas por ticket (`TECH-43: Sin bloqueos`), **nunca** generan mención.
 
 ## Pulse TechOps workflow
 
@@ -155,9 +156,17 @@ That's it. The bot is now running at `http://localhost:3000`.
 
 ### 3. Expose to the internet (required for Slack webhooks)
 
-Slack needs to reach your bot. Options:
+Slack needs to reach your bot over a **stable public HTTPS hostname** — buttons inside already-delivered DMs keep posting to the stored Request URL long after the message was sent, so an ephemeral URL breaks every historical button when it dies.
 
-**Cloudflare Tunnel (recommended — free, no port forwarding):**
+**Tailscale Funnel (used in production here):**
+```bash
+tailscale funnel --bg --yes http://localhost:8081
+# https://<your-host>.ts.net → Caddy (:8081) → container
+# Validate from public resolvers/DNS, not from inside the tailnet:
+#   dig +short @1.1.1.1 <your-host>.ts.net A
+```
+
+**Cloudflare Tunnel:**
 ```bash
 brew install cloudflare/cloudflare/cloudflared
 cloudflared tunnel --url http://localhost:3000
@@ -418,6 +427,8 @@ Whichever route you choose, Slack's Request URLs must point at your public HTTPS
 - [x] Mood tracking
 - [x] Analytics dashboard + CSV export
 - [x] Weekly digest email
+- [x] Owner connection self-check (daily DM + OK button round-trip proof)
+- [ ] Vacation date ranges (currently indefinite until the user returns)
 - [ ] Multiple standup schedules per workspace
 - [ ] Jira/Linear/GitHub integration
 - [ ] Microsoft Teams support *(coming soon)*

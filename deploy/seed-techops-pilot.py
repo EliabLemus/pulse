@@ -15,7 +15,7 @@ import sys
 from collections.abc import Callable, Mapping
 from typing import Any
 
-SCHEDULE_NAME = "Pulse TechOps Pilot"
+SCHEDULE_NAME = "Compass DSU"
 QUESTIONS = [
     "¿Qué lograste avanzar o completar ayer?",
     "¿Cuál es tu tarea principal para hoy?",
@@ -111,9 +111,8 @@ def _seed(cursor: Any, env: Mapping[str, str]) -> None:
             """
             UPDATE standup_schedules
             SET schedule_time = %s, schedule_tz = %s, schedule_days = %s,
-                questions = %s::jsonb, participants = %s, channel_id = %s,
-                reminder_minutes = 0, active = TRUE, post_to_thread = TRUE,
-                notify_on_report = TRUE, post_summary = TRUE,
+                questions = %s::jsonb,
+                active = TRUE,
                 pending_reminder_times = %s, window_end = %s, missing_mention = %s,
                 updated_at = NOW()
             WHERE id = %s

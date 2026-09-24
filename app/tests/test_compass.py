@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
-from datetime import date
 from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
@@ -12,46 +12,66 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 from compass import CompassClient  # noqa: E402
 
 
-def test_weekly_assignments_groups_only_matching_assignees_within_monday_to_friday():
+def test_active_sprint_assignments_groups_only_matching_open_assignees():
     client = CompassClient("cmp_test")
-    client._request_json = MagicMock(
-        side_effect=[
-            {"tickets": [{"key": "TOP-1"}, {"key": "TOP-2"}]},  # todo
-            {"tickets": [{"key": "TOP-3"}]},  # active
-            {"tickets": []},  # blocked
-            {
-                "key": "TOP-1",
-                "title": "Monday task",
-                "status": "todo",
-                "assignee": "ALICE@zubale.com",
-                "dueDate": "2026-09-14",
-            },
-            {
-                "key": "TOP-2",
-                "title": "Other person's task",
-                "status": "todo",
-                "assignee": "bob@zubale.com",
-                "dueDate": "2026-09-16",
-            },
-            {
-                "key": "TOP-3",
-                "title": "Friday task",
-                "status": "active",
-                "assignee": {"email": "alice@zubale.com"},
-                "dueDate": "2026-09-18",
-            },
-        ]
+    client._call_mcp = MagicMock(
+        return_value={
+            "content": [
+                {
+                    "type": "text",
+                    "text": '{"active":true,"tasks":[{"key":"TOP-1","title":"Sprint task","statusCategory":"todo","assigneeEmail":"ALICE@zubale.com","dueDate":"2026-09-29"},{"key":"TOP-2","statusCategory":"done","assigneeEmail":"alice@zubale.com"},{"key":"TOP-3","statusCategory":"active","assigneeEmail":"bob@zubale.com"}]}',
+                }
+            ]
+        }
     )
 
-    assignments = client.weekly_assignments(
+    assignments = client.active_sprint_assignments(
         ["alice@zubale.com", "carol@zubale.com"],
         team="techops",
-        local_day=date(2026, 9, 15),
     )
 
-    assert [task["key"] for task in assignments["alice@zubale.com"]] == ["TOP-1", "TOP-3"]
+    assert [task["key"] for task in assignments["alice@zubale.com"]] == ["TOP-1"]
     assert assignments["carol@zubale.com"] == []
-    assert client._request_json.call_count == 6
+    client._call_mcp.assert_called_once_with("get_active_sprint", {"team": "techops"})
+
+
+def test_active_sprint_assignments_returns_empty_context_when_no_sprint_is_active():
+    client = CompassClient("cmp_test")
+    client._call_mcp = MagicMock(return_value={"content": [{"type": "text", "text": '{"active":false}'}]})
+
+    assert client.active_sprint_assignments(["alice@zubale.com"], team="techops") == {"alice@zubale.com": []}
+
+
+def test_active_sprint_context_carries_the_sprint_name():
+    client = CompassClient("cmp_test")
+    client._call_mcp = MagicMock(
+        return_value={
+            "content": [
+                {
+                    "type": "text",
+                    "text": '{"active":true,"sprint":{"name":"Sprint 2"},"tasks":[{"key":"TOP-1","statusCategory":"todo","assigneeEmail":"alice@zubale.com"}]}',
+                }
+            ]
+        }
+    )
+
+    context = client.active_sprint_assignments(["alice@zubale.com"], team="techops")
+
+    assert context["sprint_name"] == "Sprint 2"
+    assert [task["key"] for task in context["alice@zubale.com"]] == ["TOP-1"]
+
+
+def test_active_sprint_assignments_caps_each_member_at_five_tasks():
+    client = CompassClient("cmp_test")
+    tasks = [
+        {"key": f"TOP-{number}", "statusCategory": "todo", "assigneeEmail": "alice@zubale.com"}
+        for number in range(7, 0, -1)
+    ]
+    client._call_mcp = MagicMock(return_value={"content": [{"type": "text", "text": json.dumps({"active": True, "tasks": tasks})}]})
+
+    assignments = client.active_sprint_assignments(["alice@zubale.com"], team="techops")
+
+    assert [task["key"] for task in assignments["alice@zubale.com"]] == ["TOP-1", "TOP-2", "TOP-3", "TOP-4", "TOP-5"]
 
 
 def test_post_comment_mock_mode_logs_without_touching_the_network(monkeypatch, caplog):

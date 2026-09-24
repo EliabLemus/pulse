@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -50,11 +49,12 @@ class TestFormatStandup:
         result = _format_standup("U1", ["Yesterday work", "Today work", "None"])
         assert "<@U1>" in result
 
-    def test_includes_date(self):
+    def test_starts_with_the_contributor_not_a_daily_header(self):
         from handlers import _format_standup
 
         result = _format_standup("U1", ["y", "t", "b"])
-        assert datetime.utcnow().strftime("%Y") in result
+        assert result.startswith("*<@U1>*")
+        assert "Avances de" not in result
 
     def test_blockers_none_text(self):
         from handlers import _format_standup
@@ -98,7 +98,7 @@ class TestFormatStandup:
         result = _format_standup("U1", ["ayer", "hoy", "sin bloqueos"], questions=questions)
         assert "📋" not in result
         assert "✅" not in result
-        assert re.search(r"\*Avances de <@U1>\* - \d{1,2} de \w+ de \d{4}", result)
+        assert result.startswith("*<@U1>*")
 
     def test_mood_included_when_provided(self):
         from handlers import _format_standup
@@ -297,11 +297,10 @@ class TestSingleFormSubmission:
                 },
             )
 
-        assert (synced, failures) == (2, [])
+        assert (synced, failures) == (1, [])
         comments = {call.args[0]: call.args[1] for call in compass.post_comment.call_args_list}
-        assert set(comments) == {"TECH-12", "TECH-1"}
+        assert set(comments) == {"TECH-12"}
         assert comments["TECH-12"] == "Actualización de Pulse:\navance a b y c"
-        assert comments["TECH-1"] == "Actualización de Pulse:\nsigo dashboards"
 
     def test_submission_with_cleared_templates_posts_no_compass_comments(self, monkeypatch):
         import handlers
@@ -321,6 +320,31 @@ class TestSingleFormSubmission:
                 {
                     "question_0": {"answer_0": {"value": "Revisé PRs del equipo"}},
                     "question_1": {"answer_1": {"value": "Documentación interna"}},
+                    "question_2": {"answer_2": {"value": "Sin bloqueos"}},
+                },
+            )
+
+        assert (synced, failures) == (0, [])
+        compass.post_comment.assert_not_called()
+
+    def test_submission_does_not_sync_planned_today_work_to_compass(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            compass_tasks=[{"key": "TECH-34", "title": "AI Hub"}],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            synced, failures = handlers._sync_compass_progress(
+                session,
+                {
+                    "question_0": {"answer_0": {"value": "Sin avance para reportar"}},
+                    "question_1": {"answer_1": {"value": "TECH-34: Implementar la integración"}},
                     "question_2": {"answer_2": {"value": "Sin bloqueos"}},
                 },
             )
@@ -355,7 +379,7 @@ class TestSingleFormSubmission:
         complete.assert_called_once_with("U1", session, client)
         assert (
             client.chat_postMessage.call_args.kwargs["text"]
-            == "Tu update se publicó, pero no pude actualizar Compass para: TOP-1"
+            == "Tu avance se publicó, pero no pude actualizar Compass para: TOP-1"
         )
 
 
@@ -495,7 +519,7 @@ class TestSingleFormEdit:
             "channel_id": "C1",
             "questions": ["Q1", "Q2", "Q3"],
             "id": 7,
-            "name": "Pulse TechOps Pilot",
+            "name": "Compass DSU",
         }
         db_mock.get_standup_by_id.return_value = {
             "yesterday": "ayer",
@@ -587,21 +611,21 @@ class TestSingleFormEdit:
         ]
         assert "C1" not in channels_posted  # no duplicate in the channel
 
-    def test_edit_falls_back_to_thread_reply_without_stored_ts(self):
+    def test_edit_falls_back_to_a_root_message_without_stored_ts(self):
         import handlers
 
         client = MagicMock()
         db_mock = MagicMock()
         db_mock.get_standup_by_id.return_value = {}
-        db_mock.get_daily_thread_ts.return_value = "999.888"
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", self._edit_session(), client)
 
         client.chat_update.assert_not_called()
-        thread_reply = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts") == "999.888")
-        assert "✏️" in thread_reply.kwargs["text"]
+        channel_post = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C1")
+        assert "thread_ts" not in channel_post.kwargs
+        assert "✏️" in channel_post.kwargs["text"]
 
-    def test_edit_falls_back_to_thread_reply_when_update_fails(self):
+    def test_edit_falls_back_to_a_root_message_when_update_fails(self):
         import handlers
 
         client = MagicMock()
@@ -611,12 +635,12 @@ class TestSingleFormEdit:
             "message_channel": "C1",
             "message_ts": "111.222",
         }
-        db_mock.get_daily_thread_ts.return_value = "999.888"
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", self._edit_session(), client)
 
-        thread_reply = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts") == "999.888")
-        assert "✏️" in thread_reply.kwargs["text"]
+        channel_post = next(c for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C1")
+        assert "thread_ts" not in channel_post.kwargs
+        assert "✏️" in channel_post.kwargs["text"]
 
     def test_blocker_escalation_is_appended_after_the_update(self):
         import handlers
@@ -640,7 +664,7 @@ class TestSingleFormEdit:
         with patch.dict(sys.modules, {"db": db_mock}):
             handlers._complete_standup("U1", session, client)
 
-        update = next(c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs.get("thread_ts"))
+        update = next(c.kwargs["text"] for c in client.chat_postMessage.call_args_list if c.kwargs.get("channel") == "C1")
         escalation = "<@UMANAGER> — bloqueo reportado por <@U1>"
         assert update.endswith(escalation)
         assert update.index("Esperando acceso") < update.index(escalation)
@@ -667,6 +691,31 @@ class TestSingleFormEdit:
             handlers._complete_standup("U1", session, client)
 
         db_mock.set_standup_message.assert_called_once_with("T1", 42, "C1", "555.666")
+
+    def test_submission_posts_one_root_message_for_its_own_thread(self):
+        import handlers
+
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "555.666"}
+        db_mock = MagicMock()
+        db_mock.save_standup.return_value = 42
+        db_mock.get_standup_schedule_for_channel.return_value = {"channel_id": "C1", "notify_on_report": True}
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Ayer", "Hoy", "Bloqueos"],
+            answers=["avance", "foco", "sin bloqueos"],
+        )
+
+        with patch.dict(sys.modules, {"db": db_mock}):
+            handlers._complete_standup("U1", session, client)
+
+        channel_posts = [call.kwargs for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "C1"]
+        assert len(channel_posts) == 1
+        assert "thread_ts" not in channel_posts[0]
+        assert channel_posts[0]["text"].startswith("*<@U1>*")
+        assert "Compass DSU —" not in channel_posts[0]["text"]
 
 
 # ---------------------------------------------------------------------------
@@ -735,7 +784,7 @@ class TestStartStandupSession:
 
         texts = [c.kwargs.get("text", "") for c in client.chat_postMessage.call_args_list]
         assert not any("already" in t.lower() for t in texts)
-        assert any("standup" in t.lower() for t in texts)
+        assert "Comparte tu avance." in texts
 
     def test_new_session_sends_starting_message(self):
         _ss_mock.has_session.return_value = False
@@ -761,7 +810,7 @@ class TestStartStandupSession:
 
         # Should post the standup-time DM (with Fill in form button)
         texts = [c.kwargs.get("text", "") for c in client.chat_postMessage.call_args_list]
-        assert any("standup" in t.lower() for t in texts)
+        assert "Comparte tu avance." in texts
 
 
 # ---------------------------------------------------------------------------
@@ -815,7 +864,7 @@ class TestIncomingDMDispatch:
 
         record_answer.assert_not_called()
         client.chat_postMessage.assert_called_once()
-        assert "Completar update" in client.chat_postMessage.call_args.kwargs["text"]
+        assert "Completar mi avance" in client.chat_postMessage.call_args.kwargs["text"]
         start.assert_not_called()
 
     def test_non_dm_message_is_ignored(self):

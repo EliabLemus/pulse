@@ -1,6 +1,6 @@
 {
   "display_information": {
-    "name": "Compass",
+    "name": "Compass DSU",
     "description": "TechOps daily standup assistant.",
     "background_color": "#0d1117"
   },
@@ -11,7 +11,7 @@
       "messages_tab_read_only_enabled": false
     },
     "bot_user": {
-      "display_name": "Compass",
+      "display_name": "Compass DSU",
       "always_online": true
     },
     "slash_commands": [
