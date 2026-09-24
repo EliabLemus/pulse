@@ -87,6 +87,16 @@ _TRAILING_QUALIFIER = re.compile(
 # These come from questions about availability, not about being blocked.
 _QUANTITY_ONLY = re.compile(r"^[\d\s.:,/hms+-]*(?:h|hr|hrs|hour|hours|m|min|mins|minute|minutes)?$", re.I)
 
+# A per-ticket answer leads with the ticket key ("TECH-43: Sin bloqueos"); the
+# key itself says nothing about being blocked, so it is stripped before the
+# phrase check. Without this, the Compass DSU single form — which answers the
+# blocker question once per ticket — had every negation counted as a blocker.
+_TICKET_PREFIX = re.compile(r"^[a-z][a-z0-9]*-\d+\s*[:：\-–—]\s*", re.I)
+
+# normalise strips trailing punctuation, so "TECH-43:" arrives here as the bare
+# key "tech-43". A key with no words after it says nothing about being blocked.
+_TICKET_KEY_ONLY = re.compile(r"^[a-z][a-z0-9]*-\d+$", re.I)
+
 
 def normalise(answer: str | None) -> str:
     """Lowercase, strip list markers and punctuation, collapse whitespace."""
@@ -113,15 +123,25 @@ def reports_a_blocker(answer: str | None) -> bool:
     """True when the answer describes something actually blocking the person.
 
     Anything that normalises to a known way of saying "nothing", or that is
-    only a quantity, is not a blocker.
+    only a quantity, is not a blocker. Multi-line per-ticket answers are judged
+    line by line: "TECH-43: Sin bloqueos\\nTECH-44: Sin bloqueos" is a no, while
+    a blocker on any single line still flags.
     """
     text = normalise(answer)
     if not text:
         return False
-    if text in _NO_BLOCKER_PHRASES:
+    lines = [line for line in (raw.strip() for raw in str(answer).replace("\r", "").split("\n")) if line]
+    if len(lines) > 1:
+        return any(reports_a_blocker(line) for line in lines)
+    if text in _NO_BLOCKER_PHRASES or _TICKET_KEY_ONLY.match(text):
         return False
     if _QUANTITY_ONLY.match(text):
         return False
+    # "TECH-43: Sin bloqueos" — drop the ticket key, then re-run the checks on
+    # what the person actually wrote about being blocked.
+    stripped = _TICKET_PREFIX.sub("", text).strip()
+    if stripped and stripped != text:
+        return reports_a_blocker(stripped)
     # "• None" and "- none." reduce to "none" above. A short answer built only
     # from repeated no-words ("no, none") is still a no.
     words = {w for w in re.split(r"[\s,/&+]+", text) if w}

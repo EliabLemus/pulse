@@ -164,3 +164,43 @@ class TestNotApplicable:
     def test_a_real_blocker_containing_a_slash_is_untouched(self):
         assert reports_a_blocker("blocked on the CI/CD pipeline") is True
         assert reports_a_blocker("waiting on n/a approval from legal") is True
+
+
+class TestPerTicketMultilineAnswers:
+    """The Compass DSU single form answers the blocker question once per ticket:
+
+    "TECH-43: Sin bloqueos\\nTECH-44: Sin bloqueos\\nTECH-46: Sin bloqueos".
+
+    `normalise` flattens the newlines, so the whole string stopped matching the
+    no-blocker phrases and every such standup was escalated to the manager
+    (reported on the production workspace 2026-09-23 with exactly this format).
+    Per-ticket lines must be judged per line: a blocker on any line is a
+    blocker; negations on every line are none.
+    """
+
+    USER_FORMAT = "TECH-43: Sin bloqueos\nTECH-44: Sin bloqueos\nTECH-46: Sin bloqueos"
+    SPANISH_Q = [
+        "¿Qué lograste avanzar o completar ayer?",
+        "¿Cuál es tu tarea principal para hoy?",
+        "¿Tienes algún bloqueo que te impida avanzar hoy?",
+    ]
+
+    def test_the_exact_reported_format_is_not_a_blocker(self):
+        assert reports_a_blocker(self.USER_FORMAT) is False
+        assert has_blockers(self.SPANISH_Q, ["avance", "tarea", self.USER_FORMAT]) is False
+
+    def test_ticket_prefixed_negations_single_line(self):
+        for value in ["TECH-43: Sin bloqueos", "TECH-44: nada", "TECH-46: Ninguno", "TECH-17: Sin bloqueo"]:
+            assert reports_a_blocker(value) is False, value
+
+    def test_a_real_blocker_on_any_line_still_flags(self):
+        answer = "TECH-43: Sin bloqueos\nTECH-44: Esperando acceso a staging"
+        assert reports_a_blocker(answer) is True
+        assert has_blockers(self.SPANISH_Q, ["avance", "tarea", answer]) is True
+
+    def test_a_real_blocker_with_ticket_prefix_still_flags(self):
+        for value in ["TECH-43: Esperando acceso al repositorio", "TECH-46: waiting on creds"]:
+            assert reports_a_blocker(value) is True, value
+
+    def test_a_bare_ticket_reference_with_no_text_is_not_a_blocker(self):
+        assert reports_a_blocker("TECH-43:") is False

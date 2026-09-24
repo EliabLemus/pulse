@@ -949,16 +949,6 @@ def register_workspace_job(
         )
         logger.info("Registered reminder job for %s (%d min before)", team_id, reminder_minutes)
 
-    # Weekly digest job (Sunday 18:00 in workspace tz)
-    scheduler.add_job(
-        _send_weekly_digest,
-        trigger=CronTrigger(day_of_week="sun", hour=18, minute=0, timezone=tz),
-        args=[team_id, bot_token],
-        id=f"digest_{team_id}",
-        name=f"Weekly Digest — {team_id}",
-        replace_existing=True,
-    )
-
     # Manager digest job — runs daily at standup time (after standup completes)
     # Use a 30-minute offset after the standup time so responses are in by then
     standup_plus_30 = datetime(2000, 1, 1, int(hour), int(minute)) + timedelta(minutes=30)
@@ -1018,16 +1008,7 @@ def register_workspace_digests_only(
         logger.error("Invalid schedule config for %s: %s", team_id, exc)
         return
 
-    # Weekly digest
-    scheduler.add_job(
-        _send_weekly_digest,
-        trigger=CronTrigger(day_of_week="sun", hour=18, minute=0, timezone=tz),
-        args=[team_id, bot_token],
-        id=f"digest_{team_id}",
-        name=f"Weekly Digest — {team_id}",
-        replace_existing=True,
-    )
-
+    # Weekly digest job — unregistered (weekend silence; fired Sundays 18:00).
     # Manager digest
     standup_plus_30 = datetime(2000, 1, 1, int(hour), int(minute)) + timedelta(minutes=30)
     scheduler.add_job(
@@ -1091,6 +1072,20 @@ def _default_report_time(schedule_time: str) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
+_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri")
+
+
+def _enforce_weekday_days(days: str) -> str:
+    """Clamp a schedule's day list to weekdays.
+
+    Weekend silence is an owner-level product rule: Pulse never sends anything
+    on Saturday or Sunday, regardless of configuration. A day list that names
+    sat/sun is clipped to its weekdays (and to nothing, if it named none).
+    """
+    kept = [day for day in (d.strip().lower() for d in days.split(",")) if day in _WEEKDAYS]
+    return ",".join(kept)
+
+
 def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> None:
     """Register a cron job for a standup_schedules row."""
     team_id = schedule["team_id"]
@@ -1098,7 +1093,7 @@ def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> Non
     schedule_id = schedule["id"]
     schedule_time = schedule.get("schedule_time") or "09:00"
     schedule_tz = schedule.get("schedule_tz") or "UTC"
-    schedule_days = schedule.get("schedule_days", "mon,tue,wed,thu,fri")
+    schedule_days = _enforce_weekday_days(schedule.get("schedule_days", "mon,tue,wed,thu,fri"))
     channel_id = schedule.get("channel_id") or ""
     reminder_minutes = int(schedule.get("reminder_minutes") or 0)
 

@@ -166,7 +166,8 @@ class TestSyncRegistersNewSchedules(_SyncTestBase):
     def test_team_with_schedules_gets_digests_only(self):
         db = _make_db(schedules=[_schedule_row()], installations=[_installation_row()])
         self.sync(db)
-        assert self.scheduler.get_job("digest_T1") is not None
+        # Weekend silence rule: the Sunday weekly digest is no longer registered.
+        assert self.scheduler.get_job("digest_T1") is None
         assert self.scheduler.get_job("standup_T1") is None
 
     def test_team_without_schedules_gets_workspace_job(self):
