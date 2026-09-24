@@ -1127,6 +1127,15 @@ def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> Non
         "Registered schedule job %s (%s) at %s %s", schedule_id, schedule.get("name"), schedule_time, schedule_tz
     )
 
+    # Owner connection check: a daily 09:00 weekday DM with an OK button that
+    # proves the Slack/Funnel round trip. Owner-only; weekend silence applies.
+    try:
+        from owner_healthcheck import register_owner_health_check  # noqa: PLC0415
+
+        register_owner_health_check(scheduler, team_id, bot_token, schedule_tz)
+    except Exception as exc:
+        logger.warning("Could not register owner health check for %s: %s", team_id, exc)
+
     if reminder_minutes > 0:
         standup_dt = datetime(2000, 1, 1, int(hour), int(minute))
         reminder_dt = standup_dt - timedelta(minutes=reminder_minutes)

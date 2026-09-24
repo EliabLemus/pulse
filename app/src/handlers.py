@@ -2063,3 +2063,8 @@ def register_handlers(app: App) -> None:
             say(f"⚠️ Could not save timezone: {exc}")
             return
         say(f"✅ Your timezone has been updated to *{tz_str}*.")
+
+    # Owner connection check: DM with an OK button proving the Funnel round trip.
+    from owner_healthcheck import register_health_check_actions  # noqa: PLC0415
+
+    register_health_check_actions(app)
