@@ -77,9 +77,15 @@ _COLLAPSE = re.compile(r"\s+")
 _EMOJI_SHORTCODE = re.compile(r":[a-z0-9_+-]+:")
 _PICTOGRAPH = re.compile("[\U0001f000-\U0001faff\u2600-\u27bf\ufe0f\u2190-\u21ff]")
 
-# Qualifiers that do not change the answer. "nothing for now" is still nothing.
+# Qualifiers that do not change the answer. "nothing for now" is still nothing,
+# and so is "nada por ahora" — the Spanish forms the TechOps team writes
+# (SPEC-001). The strip happens before the phrase checks, and what remains
+# still decides: "bloqueado todavía" is still a blocker.
 _TRAILING_QUALIFIER = re.compile(
-    r"\s*(?:for|as of|right)?\s*(?:now|today|yet|currently|atm|at the moment|so far|this week)\s*$",
+    r"\s*(?:"
+    r"(?:for|as of|right)?\s*(?:now|today|yet|currently|atm|at the moment|so far|this week)"
+    r"|por ahora|por hoy|de momento|(?:por )?esta semana|todav[ií]a|a[uú]n"
+    r")\s*$",
     re.I,
 )
 
@@ -91,7 +97,10 @@ _QUANTITY_ONLY = re.compile(r"^[\d\s.:,/hms+-]*(?:h|hr|hrs|hour|hours|m|min|mins
 # key itself says nothing about being blocked, so it is stripped before the
 # phrase check. Without this, the Compass DSU single form — which answers the
 # blocker question once per ticket — had every negation counted as a blocker.
-_TICKET_PREFIX = re.compile(r"^[a-z][a-z0-9]*-\d+\s*[:：\-–—]\s*", re.I)
+# SPEC-001: the separator is optional — "TECH-39 sin bloqueos" (space only)
+# is the same per-ticket negation. The optional separator is followed by a
+# required boundary (\s or end), so "TECH-40abc" never matches.
+_TICKET_PREFIX = re.compile(r"^[a-z][a-z0-9]*-\d+(?:\s*[:：\-–—]\s*|\s+)", re.I)
 
 # normalise strips trailing punctuation, so "TECH-43:" arrives here as the bare
 # key "tech-43". A key with no words after it says nothing about being blocked.

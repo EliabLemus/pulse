@@ -204,3 +204,57 @@ class TestPerTicketMultilineAnswers:
 
     def test_a_bare_ticket_reference_with_no_text_is_not_a_blocker(self):
         assert reports_a_blocker("TECH-43:") is False
+
+
+class TestSpec001SpanishNegations:
+    """SPEC-001 (2026-09-24): remaining Spanish negation gaps.
+
+    The owner's 4-ticket format of 2026-09-24 was already fixed by the
+    per-ticket line judging; this class pins the variants that still
+    mis-flagged on main: separator-less ticket keys and Spanish trailing
+    time qualifiers.
+    """
+
+    OWNER_2026_09_24 = "TECH-17: Sin bloqueos\nTECH-39: Sin bloqueos\nTECH-40: Sin bloqueos\nTECH-34: Sin bloqueos"
+    SPANISH_Q = [
+        "¿Qué lograste avanzar o completar ayer?",
+        "¿Cuál es tu tarea principal para hoy?",
+        "¿Tienes algún bloqueo que te impida avanzar hoy?",
+    ]
+
+    def test_owner_2026_09_24_exact_format_is_not_a_blocker(self):
+        assert reports_a_blocker(self.OWNER_2026_09_24) is False
+        assert has_blockers(self.SPANISH_Q, ["avance", "tarea", self.OWNER_2026_09_24]) is False
+
+    def test_owner_format_with_one_real_blocker_still_flags(self):
+        mixed = "TECH-17: Sin bloqueos\nTECH-39: Sesión bloqueada, falta definición de requerimiento"
+        assert reports_a_blocker(mixed) is True
+
+    def test_ticket_key_without_separator_is_still_per_ticket(self):
+        assert reports_a_blocker("TECH-39 sin bloqueos") is False
+        assert reports_a_blocker("TECH-39 Sin bloqueos") is False
+        assert reports_a_blocker("TECH-39 nada") is False
+
+    def test_key_concatenation_never_matches(self):
+        # "TECH-40abc" is not the key TECH-40; whatever follows stands on its own.
+        assert reports_a_blocker("TECH-40abc nada") is True
+
+    def test_spanish_trailing_qualifiers_are_neutral(self):
+        for value in [
+            "TECH-44: Nada por ahora",
+            "TECH-34: Ninguno por hoy",
+            "Sin bloqueos por ahora",
+            "TECH-12: Sin bloqueos de momento",
+            "TECH-12: Nada esta semana",
+            "Ninguna todavía",
+        ]:
+            assert reports_a_blocker(value) is False, value
+
+    def test_a_real_blocker_with_a_qualifier_still_flags(self):
+        for value in [
+            "bloqueado por el ambiente de pruebas",
+            "bloqueado todavía",
+            "TECH-39: Sesión bloqueada, falta definición de requerimiento",
+            "TECH-44: Esperando acceso, por ahora nada avanzado",
+        ]:
+            assert reports_a_blocker(value) is True, value
