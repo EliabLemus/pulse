@@ -117,7 +117,16 @@ def _seed(cursor: Any, env: Mapping[str, str]) -> None:
                 updated_at = NOW()
             WHERE id = %s
             """,
-            schedule_values[2:] + (existing["id"] if isinstance(existing, dict) else existing[0],),
+            (
+                schedule_values[2],  # schedule_time
+                schedule_values[3],  # schedule_tz
+                schedule_values[4],  # schedule_days
+                schedule_values[5],  # questions
+                schedule_values[8],  # pending_reminder_times
+                schedule_values[9],  # window_end
+                schedule_values[10],  # missing_mention
+                existing["id"] if isinstance(existing, dict) else existing[0],
+            ),
         )
     else:
         cursor.execute(
