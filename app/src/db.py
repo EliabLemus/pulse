@@ -33,10 +33,40 @@ except Exception as exc:  # noqa: BLE001
 
 
 def get_conn():
-    """Borrow a connection from the pool."""
+    """Borrow a live connection from the pool.
+
+    Connections idling past the server lifetime can die silently; probing
+    with a cheap SELECT and discarding corpses keeps the pool self-healing.
+    (Incident 2026-09-25: 'connection already closed' rejected submissions.)
+    """
     if _pool is None:
         raise RuntimeError("Database pool not initialised")
-    return _pool.getconn()
+
+    def _probe(candidate) -> bool:
+        try:
+            with candidate.cursor() as cur:
+                cur.execute("SELECT 1")
+            candidate.rollback()
+            return True
+        except Exception:  # noqa: BLE001 - any failure means the conn is dead
+            return False
+
+    conn = _pool.getconn()
+    if _probe(conn):
+        return conn
+    # Dead connection: discard it and take a fresh one (one retry).
+    try:
+        _pool.putconn(conn, close=True)
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not discard dead pool connection", exc_info=True)
+    conn = _pool.getconn()
+    if _probe(conn):
+        return conn
+    try:
+        _pool.putconn(conn, close=True)
+    except Exception:  # noqa: BLE001
+        pass
+    raise RuntimeError("Database pool could not provide a live connection")
 
 
 def release_conn(conn) -> None:

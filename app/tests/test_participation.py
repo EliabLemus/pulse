@@ -488,7 +488,9 @@ class TestPublicHelpers:
         pool.getconn.return_value = conn
         with patch.object(db, "_pool", pool):
             db.get_participation_overview("T1", days=7)
-        assert cur.execute.call_count == 3
+        # 4 = liveness probe ("SELECT 1") + the 3 real queries; the probe
+        # count is owned by TestGetConnSelfHealing, here we pin the queries.
+        assert cur.execute.call_count == 4
 
 
 class TestSubmissionsNameTheirSchedule:
