@@ -268,7 +268,7 @@ class TestSingleFormSubmission:
         ):
             _standup_form_handler()(MagicMock(), body, client)
 
-        sync.assert_called_once_with(fresh, values)
+        sync.assert_called_once_with(fresh, values, client)
         complete.assert_called_once_with("U1", fresh, client)
 
     def test_submission_comments_tickets_with_content_after_their_key_line(self, monkeypatch):
@@ -286,6 +286,8 @@ class TestSingleFormSubmission:
         )
         compass = MagicMock()
         monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+        slack = MagicMock()
+        slack.users_info.return_value = {"user": {"profile": {"real_name": "Eliab Lemus"}}}
 
         with patch.object(handlers, "CompassClient", return_value=compass):
             synced, failures = handlers._sync_compass_progress(
@@ -295,12 +297,37 @@ class TestSingleFormSubmission:
                     "question_1": {"answer_1": {"value": "TECH-12: \nTECH-1: sigo dashboards\nTECH-3: "}},
                     "question_2": {"answer_2": {"value": "TECH-3 bloqueado por accesos (sin plantilla)"}},
                 },
+                slack,
             )
 
         assert (synced, failures) == (1, [])
         comments = {call.args[0]: call.args[1] for call in compass.post_comment.call_args_list}
         assert set(comments) == {"TECH-12"}
-        assert comments["TECH-12"] == "Actualización de Pulse:\navance a b y c"
+        # Owner decision 2026-09-24: the header carries the author's plain name
+        # (Compass renders every tested mention syntax as plain text).
+        assert comments["TECH-12"] == "Avance de Eliab Lemus:\navance a b y c"
+
+    def test_compass_header_falls_back_to_user_id_without_slack_client(self, monkeypatch):
+        import handlers
+
+        session = state.UserSession(
+            cache_key="T1:U1",
+            team_id="T1",
+            channel="C1",
+            questions=["Q1", "Q2", "Q3"],
+            compass_tasks=[{"key": "TECH-12", "title": "Taxonomia"}],
+        )
+        compass = MagicMock()
+        monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
+
+        with patch.object(handlers, "CompassClient", return_value=compass):
+            handlers._sync_compass_progress(
+                session,
+                {"question_0": {"answer_0": {"value": "TECH-12: avance sin cliente"}}},
+            )
+
+        comments = {call.args[0]: call.args[1] for call in compass.post_comment.call_args_list}
+        assert comments["TECH-12"] == "Avance de U1:\navance sin cliente"
 
     def test_submission_with_cleared_templates_posts_no_compass_comments(self, monkeypatch):
         import handlers

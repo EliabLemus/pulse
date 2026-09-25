@@ -11,6 +11,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 
+import db
 import pytz
 import requests
 from compass import CompassClient
@@ -25,7 +26,32 @@ logger = logging.getLogger(__name__)
 _daily_thread_cache: dict[str, str] = {}
 
 
-def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
+def _compass_author_name(client, team_id: str, user_id: str) -> str:
+    """Plain display name of the standup author for Compass comment headers.
+
+    Resolution order: live Slack profile (real name, then display name), the
+    members table, and finally the raw user id so the header never blocks a
+    sync. Plain text on purpose — Compass MCP takes no mention field and the
+    tested mention formats (Jira `[~...]`, Slack `<@...>`, `@email`) all
+    rendered as plain text in production (probe on TECH-39, 2026-09-24).
+    """
+    try:
+        profile = (client.users_info(user=user_id).get("user") or {}).get("profile") or {}
+        name = profile.get("real_name") or profile.get("display_name")
+        if name and str(name).strip():
+            return str(name).strip()
+    except Exception as exc:
+        logger.warning("users.info failed while naming a Compass comment for %s: %s", user_id, exc)
+    try:
+        for member in db.get_all_members(team_id):
+            if member.get("user_id") == user_id and member.get("real_name"):
+                return str(member["real_name"]).strip()
+    except Exception as exc:
+        logger.warning("members lookup failed while naming a Compass comment for %s: %s", user_id, exc)
+    return user_id
+
+
+def _sync_compass_progress(session, values: dict, slack_client=None) -> tuple[int, list[str]]:
     """Comment ticket progress or blockers whose "KEY: " line has content.
 
     The modal pre-fills the DSU answers with one "KEY: " line per
@@ -53,7 +79,9 @@ def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
         if (field := values.get(block_id, {}).get(action_id, {}))
     ]
 
-    client = CompassClient(api_key) if api_key else None
+    compass = CompassClient(api_key) if api_key else None
+    author = _compass_author_name(slack_client, session.team_id, session.user_id) if slack_client else session.user_id
+    header = f"Avance de {author}:"
     synced = 0
     failures: list[str] = []
     for task in tasks:
@@ -70,11 +98,11 @@ def _sync_compass_progress(session, values: dict) -> tuple[int, list[str]]:
                         lines.append(content)
         if not lines:
             continue
-        if not client:
+        if not compass:
             failures.append(key)
             continue
         try:
-            client.post_comment(key, "Actualización de Pulse:\n" + "\n".join(lines))
+            compass.post_comment(key, header + "\n" + "\n".join(lines))
             synced += 1
         except Exception:
             logger.warning("Could not post Pulse progress to Compass task %s", key)
@@ -1839,7 +1867,7 @@ def register_handlers(app: App) -> None:
             )
             return
 
-        synced_count, failed_task_keys = _sync_compass_progress(session, values)
+        synced_count, failed_task_keys = _sync_compass_progress(session, values, client)
 
         # A single submitted form is the complete standup; do not collect mood.
         _complete_standup(user_id, session, client)
