@@ -55,10 +55,7 @@ Safety property to preserve: a qualifier is *stripped* before the no-blocker phr
 Add to `TestPerTicketMultilineAnswers`:
 
 ```python
-OWNER_2026_09_24 = (
-    "TECH-17: Sin bloqueos\nTECH-39: Sin bloqueos\n"
-    "TECH-40: Sin bloqueos\nTECH-34: Sin bloqueos"
-)
+OWNER_2026_09_24 = "TECH-17: Sin bloqueos\nTECH-39: Sin bloqueos\nTECH-40: Sin bloqueos\nTECH-34: Sin bloqueos"
 ```
 
 Asserts: `reports_a_blocker(OWNER_2026_09_24) is False`; `has_blockers(SPANISH_Q, [...]) is False`; and the mixed variant with one real blocker line still `True`.
