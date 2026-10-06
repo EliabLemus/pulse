@@ -329,9 +329,15 @@ def test_step1_persists_priority_and_goal_and_shows_step2():
     client.chat_postMessage.assert_not_called()
 
 
-def test_step2_final_submission_keeps_ticket_order_and_marks_no_progress():
-    with patch.object(handlers, "_persist_standup", return_value=42) as persist:
+def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_message():
+    delivery = {"channel_id": "C1", "channel_text": "*<@U1>*\n<https://compass.zubale.com/tickets/TECH-8|TECH-8>"}
+    with (
+        patch.object(handlers, "_persist_guided_submission", return_value=42) as persist,
+        patch.object(handlers, "claim_guided_delivery", return_value=delivery),
+        patch.object(handlers, "mark_guided_delivery_delivered") as mark_delivered,
+    ):
         _guided_session(
+            schedule_id=7,
             wizard_step=2,
             compass_tasks=[
                 {"key": "TECH-8", "title": "Despliegue Beta"},
@@ -345,6 +351,7 @@ def test_step2_final_submission_keeps_ticket_order_and_marks_no_progress():
             },
         )
         client = MagicMock()
+        client.chat_postMessage.side_effect = [{"ts": "1791218007.640279"}, {}]
         ack = AckRecorder()
 
         registered = _registered()
@@ -353,24 +360,62 @@ def test_step2_final_submission_keeps_ticket_order_and_marks_no_progress():
         )
 
     assert ack.calls == [{}]
-    assert persist.call_args.args[2] == [
+    assert persist.call_args.kwargs["answers"] == [
         "TECH-8: Terminé la validación del pipeline.\nTECH-9: Sin avances hoy",
         "Cerrar el despliegue a producción",
         "Ninguno",
     ]
-    assert client.chat_postMessage.call_args.kwargs["channel"] == "U1"
-    assert all(call.kwargs.get("channel") != "C1" for call in client.chat_postMessage.call_args_list)
+    assert persist.call_args.kwargs["comments"] == [
+        {"ticket_key": "TECH-8", "body": "Avance de U1:\nTerminé la validación del pipeline."}
+    ]
+    assert client.chat_postMessage.call_args_list[0].kwargs["channel"] == "C1"
+    assert (
+        "<https://compass.zubale.com/tickets/TECH-8|TECH-8>" in client.chat_postMessage.call_args_list[0].kwargs["text"]
+    )
+    mark_delivered.assert_called_once_with(42, "1791218007.640279")
+    assert client.chat_postMessage.call_args_list[1].kwargs["channel"] == "U1"
+    assert handlers.state_store.get("T1:U1") is None
 
 
-def test_step2_final_submission_persists_confirms_only_in_dm_and_clears_session():
+def test_guided_channel_failure_marks_delivery_unknown_and_keeps_the_session():
+    delivery = {"channel_id": "C1", "channel_text": "*<@U1>*\nAvance"}
+    with (
+        patch.object(handlers, "_persist_guided_submission", return_value=42),
+        patch.object(handlers, "claim_guided_delivery", return_value=delivery),
+        patch.object(handlers, "mark_guided_delivery_unknown") as mark_unknown,
+    ):
+        _guided_session(
+            schedule_id=7,
+            wizard_step=2,
+            wizard_answers={"progress": {"TECH-8": "Listo"}, "priority_goal": "Cerrar despliegue"},
+        )
+        client = MagicMock()
+        client.chat_postMessage.side_effect = RuntimeError("request outcome unknown")
+        ack = AckRecorder()
+
+        registered = _registered()
+        registered[("view", "guided_standup_modal")](
+            ack, _view_body({"blockers": {"value": {"value": "Ninguno"}}}), client
+        )
+
+    mark_unknown.assert_called_once()
+    assert mark_unknown.call_args.args[0] == 42
+    assert handlers.state_store.get("T1:U1") is not None
+
+
+def test_step2_final_submission_does_not_call_compass_from_the_daemon():
     from src.modules.standup.compass import CompassClient
 
     mcp = MagicMock()
+    delivery = {"channel_id": "C1", "channel_text": "*<@U1>*\nAvance"}
     with (
         patch.object(CompassClient, "_call_mcp", mcp),
-        patch.object(handlers, "_persist_standup", return_value=42) as persist,
+        patch.object(handlers, "_persist_guided_submission", return_value=42),
+        patch.object(handlers, "claim_guided_delivery", return_value=delivery),
+        patch.object(handlers, "mark_guided_delivery_delivered"),
     ):
         _guided_session(
+            schedule_id=7,
             wizard_step=2,
             wizard_answers={
                 "progress": {"TECH-8": "Terminé la validación del pipeline."},
@@ -379,6 +424,7 @@ def test_step2_final_submission_persists_confirms_only_in_dm_and_clears_session(
             },
         )
         client = MagicMock()
+        client.chat_postMessage.side_effect = [{"ts": "1791218007.640279"}, {}]
         ack = AckRecorder()
 
         registered = _registered()
@@ -387,14 +433,7 @@ def test_step2_final_submission_persists_confirms_only_in_dm_and_clears_session(
         )
 
     assert ack.calls == [{}]
-    persist.assert_called_once()
-    assert persist.call_args.args[2] == [
-        "TECH-8: Terminé la validación del pipeline.",
-        "Cerrar el despliegue a producción",
-        "Necesito acceso a staging",
-    ]
-    assert client.chat_postMessage.call_args.kwargs["channel"] == "U1"
-    assert all(call.kwargs.get("channel") != "C1" for call in client.chat_postMessage.call_args_list)
+    assert [call.kwargs["channel"] for call in client.chat_postMessage.call_args_list] == ["C1", "U1"]
     client.views_update.assert_not_called()
     mcp.assert_not_called()
     assert handlers.state_store.get("T1:U1") is None
@@ -402,6 +441,7 @@ def test_step2_final_submission_persists_confirms_only_in_dm_and_clears_session(
 
 def test_step2_persistence_failure_keeps_session_for_retry_and_never_confirms_success():
     _guided_session(
+        schedule_id=7,
         wizard_step=2,
         wizard_answers={
             "progress": {"TECH-8": "Terminé la validación del pipeline."},
@@ -411,7 +451,7 @@ def test_step2_persistence_failure_keeps_session_for_retry_and_never_confirms_su
     client = MagicMock()
     ack = AckRecorder()
 
-    with patch.object(handlers, "_persist_standup", return_value=None):
+    with patch.object(handlers, "_persist_guided_submission", return_value=None):
         registered = _registered()
         registered[("view", "guided_standup_modal")](
             ack, _view_body({"blockers": {"value": {"value": "Necesito acceso a staging"}}}), client

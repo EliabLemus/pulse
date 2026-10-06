@@ -78,6 +78,16 @@ class CompassClient:
             raise ValueError("Compass returned an invalid ticket")
         return payload
 
+    def post_comment(self, key: str, body: str) -> None:
+        """Append a human-authored progress comment without mutating ticket fields."""
+        normalized_key = key.strip()
+        normalized_body = body.strip()
+        if not normalized_key:
+            raise ValueError("Compass ticket key is required")
+        if not normalized_body:
+            raise ValueError("Compass comment body is required")
+        self._call_mcp("post_comment", {"key": normalized_key, "body": normalized_body})
+
     def active_sprint_assignments(
         self,
         emails: list[str],

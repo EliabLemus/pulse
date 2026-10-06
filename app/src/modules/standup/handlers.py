@@ -313,6 +313,98 @@ def _persist_standup(
         return None
 
 
+def _persist_guided_submission(
+    *,
+    session,
+    user_id: str,
+    answers: list[str],
+    channel_text: str,
+    comments: list[dict[str, str]],
+) -> int | None:
+    """Persist a guided DSU and all delivery work atomically, without a Compass key."""
+    if not session.schedule_id or not session.channel:
+        logger.warning("Guided submission has no schedule or channel for %s", user_id)
+        return None
+    try:
+        from src.core.scheduler import standup_local_date  # noqa: PLC0415
+        from src.modules.standup.comment_jobs import save_guided_submission  # noqa: PLC0415
+
+        return save_guided_submission(
+            team_id=session.team_id,
+            user_id=user_id,
+            schedule_id=session.schedule_id,
+            standup_date=standup_local_date(session.team_id, session.schedule_id, user_id),
+            answers=answers,
+            channel_id=session.channel,
+            channel_text=channel_text,
+            comments=comments,
+        )
+    except Exception as exc:
+        logger.warning("Could not persist guided submission for %s/%s: %s", session.team_id, user_id, exc)
+        return None
+
+
+def claim_guided_delivery(standup_id: int) -> dict[str, str] | None:
+    """Claim a root delivery through the durable queue."""
+    from src.modules.standup.comment_jobs import claim_guided_delivery as _claim  # noqa: PLC0415
+
+    return _claim(standup_id)
+
+
+def mark_guided_delivery_delivered(standup_id: int, message_ts: str | None) -> None:
+    """Record the single root post as delivered."""
+    from src.modules.standup.comment_jobs import mark_guided_delivery_delivered as _mark  # noqa: PLC0415
+
+    _mark(standup_id, message_ts)
+
+
+def mark_guided_delivery_unknown(standup_id: int, detail: str) -> None:
+    """Stop a root delivery after an uncertain Slack outcome."""
+    from src.modules.standup.comment_jobs import mark_guided_delivery_unknown as _mark  # noqa: PLC0415
+
+    _mark(standup_id, detail)
+
+
+def _guided_comment_author_name(client, user_id: str) -> str:
+    """Resolve the contributor name without letting a Slack lookup block delivery."""
+    try:
+        member = client.users_info(user=user_id).get("user", {})
+        profile = member.get("profile", {}) if isinstance(member, dict) else {}
+        for value in (profile.get("real_name"), profile.get("display_name"), member.get("real_name")):
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    except Exception as exc:
+        logger.debug("Could not resolve guided comment author %s: %s", user_id, exc)
+    return user_id
+
+
+def _format_guided_channel_post(user_id: str, tasks: list[dict], answers: dict) -> str:
+    """Render one root post from the captured sprint snapshot only."""
+    from src.modules.standup.compass import ticket_url  # noqa: PLC0415
+
+    progress = answers.get("progress") or {}
+    no_progress = set(answers.get("sin_avances") or [])
+    lines = [f"*<@{user_id}>*", "*Avances por ticket*"]
+    for task in tasks:
+        key = str(task.get("key") or "")
+        title = str(task.get("title") or "")
+        if not key:
+            continue
+        update = str(progress.get(key) or "").strip()
+        if not update and key in no_progress:
+            update = "_Sin avances hoy_"
+        if update:
+            identity = f"<{ticket_url(key)}|{key}>"
+            lines.append(f"• {identity}" + (f" — {title}" if title else "") + f"\n{update}")
+    priority = str(answers.get("priority_goal") or "").strip()
+    blockers = str(answers.get("blockers") or "").strip()
+    if priority:
+        lines.append(f"*Hoy:* {priority}")
+    if blockers:
+        lines.append(f"*Bloqueos:* {blockers}")
+    return "\n".join(lines)
+
+
 def _send_question_block(client, user_id: str, question: str, step: int, initial_value: str | None = None) -> None:
     """Send a standup question as a Block Kit input block plus a Submit button.
 
@@ -2116,11 +2208,14 @@ def register_handlers(app: App) -> None:
         progress_by_key = answers.get("progress") or {}
         marked_sin_avances = set(answers.get("sin_avances") or [])
         progress_lines: list[str] = []
+        comment_author = _guided_comment_author_name(client, user_id)
+        comments: list[dict[str, str]] = []
         for task in session.compass_tasks:
             key = str(task.get("key") or "")
             text = str(progress_by_key.get(key) or "")
             if text.strip():
                 progress_lines.append(f"{key}: {text}")
+                comments.append({"ticket_key": key, "body": f"Avance de {comment_author}:\n{text}"})
             elif key in marked_sin_avances:
                 progress_lines.append(f"{key}: Sin avances hoy")
         question_answers = [
@@ -2128,19 +2223,39 @@ def register_handlers(app: App) -> None:
             str(answers.get("priority_goal") or ""),
             str(answers.get("blockers") or ""),
         ]
-        standup_id = _persist_standup(
-            session.team_id,
-            user_id,
-            question_answers,
-            questions=session.questions,
-            schedule_id=session.schedule_id,
-        )
+        channel_text = _format_guided_channel_post(user_id, session.compass_tasks, answers)
+        standup_id = session.guided_submission_id
         if standup_id is None:
+            standup_id = _persist_guided_submission(
+                session=session,
+                user_id=user_id,
+                answers=question_answers,
+                channel_text=channel_text,
+                comments=comments,
+            )
+            if standup_id is None:
+                session.wizard_step = 2
+                state_store.save(session)
+                _say_once(client, user_id, "⚠️ No pude guardar tu avance. Inténtalo de nuevo.")
+                return
+            session.guided_submission_id = standup_id
+            state_store.save(session)
+
+        delivery = claim_guided_delivery(standup_id)
+        if delivery is None:
+            _say_once(client, user_id, "⚠️ Tu avance ya está pendiente de verificación. No lo reenvíes.")
+            return
+        try:
+            response = client.chat_postMessage(channel=delivery["channel_id"], text=delivery["channel_text"])
+        except Exception as exc:
+            logger.warning("Could not post guided standup %s to channel: %s", standup_id, exc)
+            mark_guided_delivery_unknown(standup_id, str(exc))
             session.wizard_step = 2
             state_store.save(session)
-            _say_once(client, user_id, "⚠️ No pude guardar tu avance. Inténtalo de nuevo.")
+            _say_once(client, user_id, "⚠️ Guardé tu avance, pero no pude publicarlo en el canal. No lo reenvíes.")
             return
-
+        message_ts = response.get("ts") if isinstance(response, dict) else None
+        mark_guided_delivery_delivered(standup_id, message_ts)
         state_store.clear(cache_key)
         client.chat_postMessage(channel=user_id, text="✅ Avance enviado.")
 
