@@ -9,8 +9,20 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.core.modules import ModuleSpec, NavItem
+from src.modules.standup.compass_context import SnapshotCompassClient, compass_context_for_members
 from src.modules.standup.dashboard import register_routes
 from src.modules.standup.handlers import claim_dm, claim_dm_command, on_channel_join, register_handlers
+
+
+def configure_compass_context() -> None:
+    """Attach the standup-owned snapshot adapter to core's generic seam."""
+    from src.core.scheduler import register_compass_context
+
+    register_compass_context(SnapshotCompassClient, compass_context_for_members)
+
+
+configure_compass_context()
+
 
 MODULE = ModuleSpec(
     name="standup",

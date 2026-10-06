@@ -466,6 +466,69 @@ def get_active_members(team_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+_SNAPSHOT_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def _normalise_snapshot_email(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    email = value.strip().lower()
+    return email if _SNAPSHOT_EMAIL_RE.fullmatch(email) else ""
+
+
+def replace_compass_task_snapshots(team_id: str, assignments: dict[str, list[dict]]) -> None:
+    """Atomically replace the latest read-only Compass task snapshots for a team."""
+    rows = [
+        (team_id, email, json.dumps(list(tasks or [])))
+        for raw_email, tasks in assignments.items()
+        if (email := _normalise_snapshot_email(raw_email))
+    ]
+    if not rows:
+        return
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO compass_task_snapshots (team_id, email, tasks, fetched_at)
+                VALUES (%s, %s, %s::jsonb, NOW())
+                ON CONFLICT (team_id, email) DO UPDATE
+                SET tasks = EXCLUDED.tasks, fetched_at = NOW()
+                """,
+                rows,
+            )
+
+
+def get_fresh_compass_task_snapshots(
+    team_id: str,
+    emails: list[str],
+    *,
+    max_age_minutes: int,
+    max_tasks_per_email: int,
+) -> dict[str, list[dict]]:
+    """Return only snapshots fresh according to the database clock."""
+    normalized = sorted({_normalise_snapshot_email(email) for email in emails} - {""})
+    if not normalized:
+        return {}
+    with db_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT email, tasks
+                FROM compass_task_snapshots
+                WHERE team_id = %s
+                  AND email = ANY(%s)
+                  AND fetched_at > NOW() - (%s * INTERVAL '1 minute')
+                """,
+                (team_id, normalized, max_age_minutes),
+            )
+            rows = cur.fetchall()
+    return {
+        row["email"]: list(row.get("tasks") or [])[:max_tasks_per_email]
+        for row in rows
+        if isinstance(row.get("email"), str)
+    }
+
+
 def upsert_member(
     team_id: str,
     user_id: str,
@@ -2522,6 +2585,7 @@ _PURGE_STEPS: tuple[tuple[str, str], ...] = (
     ("daily_standup_threads", "team_id = %s"),
     ("user_away", "team_id = %s"),
     ("user_skip", "team_id = %s"),
+    ("compass_task_snapshots", "team_id = %s"),
     ("compass_comment_jobs", "team_id = %s"),
     ("guided_standup_deliveries", "team_id = %s"),
     ("standups", "team_id = %s"),

@@ -26,9 +26,11 @@ NOT_OPERATOR_SET = {
     # client config, so these are theirs to set, not the cluster's.
     "MCP_TEAM_ID",
     "MORGENRUF_API_KEY",
-    # The one-shot Compass comment worker is launched outside the chart with an
-    # ephemeral Keychain value; the daemon must never receive this credential.
+    # One-shot Compass workers are launched outside the chart with ephemeral
+    # Keychain values; the daemon must never receive their credential/context.
     "COMPASS_API_KEY",
+    "COMPASS_TEAM",
+    "PULSE_TEAM_ID",
     "PORT",
     "PATH",
     "HOME",

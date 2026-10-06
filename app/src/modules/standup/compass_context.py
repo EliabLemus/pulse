@@ -22,6 +22,30 @@ _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 TaskList = list[dict[str, Any]]
 CompassContext = dict[str, TaskList]
+SNAPSHOT_MAX_AGE_MINUTES = 30
+
+
+class SnapshotCompassClient:
+    """Read Compass task context from Postgres, never from a credential or MCP."""
+
+    def __init__(self, team_id: str) -> None:
+        self._team_id = team_id
+
+    def active_sprint_assignments(
+        self,
+        emails: list[str],
+        *,
+        team: str,
+        max_tasks_per_email: int = 5,
+    ) -> dict[str, TaskList]:
+        import src.core.db as db  # noqa: PLC0415
+
+        return db.get_fresh_compass_task_snapshots(
+            self._team_id,
+            emails,
+            max_age_minutes=SNAPSHOT_MAX_AGE_MINUTES,
+            max_tasks_per_email=max_tasks_per_email,
+        )
 
 
 def compass_context_for_members(

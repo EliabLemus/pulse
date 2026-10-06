@@ -250,6 +250,19 @@ class TestFailOpen:
         assert all(s["compass_tasks"] == [] for s in state.started)
 
 
+def test_standup_registers_snapshot_context_without_daemon_credentials(monkeypatch):
+    import src.modules.standup as standup
+
+    monkeypatch.setattr(sched_mod, "_compass_context_loader", None)
+    monkeypatch.setattr(sched_mod, "_compass_context_client", lambda _team_id: None)
+
+    standup.configure_compass_context()
+
+    client = sched_mod._compass_context_client("T1")
+    assert client.__class__.__name__ == "SnapshotCompassClient"
+    assert sched_mod._compass_context_loader.__name__ == "compass_context_for_members"
+
+
 class TestNoCredentialOrWriteWiring:
     SOURCE = Path(__file__).resolve().parents[1] / "src" / "core" / "scheduler.py"
 

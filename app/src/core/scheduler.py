@@ -51,7 +51,7 @@ _STANDUP_RETRY_DELAYS = (60, 300, 900)
 _COMPASS_CONTEXT_TEAM = "techops"
 # Core owns only optional injected seams; standup modules register behavior at
 # application wiring time so the dependency direction never becomes core→feature.
-_compass_context_loader: Callable[..., dict[str, list[dict[str, Any]]] | None] | None = None
+_compass_context_loader: Callable[..., dict[str, list[dict[str, Any]]]] | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,15 @@ _scheduler: Optional[BackgroundScheduler] = None
 
 def get_scheduler() -> Optional[BackgroundScheduler]:
     return _scheduler
+
+
+def register_compass_context(
+    client_factory: Callable[[str], Any], loader: Callable[..., dict[str, list[dict[str, Any]]]]
+) -> None:
+    """Register feature-owned, read-only context seams for scheduled standups."""
+    global _compass_context_client, _compass_context_loader
+    _compass_context_client = client_factory
+    _compass_context_loader = loader
 
 
 def _refresh_bot_token_if_needed(team_id: str, inst: dict) -> str | None:
