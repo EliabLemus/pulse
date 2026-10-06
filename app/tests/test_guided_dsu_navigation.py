@@ -31,6 +31,7 @@ def test_step_one_renders_a_per_ticket_no_progress_checkbox_without_repeating_th
     no_progress = next(block for block in modal["blocks"] if block.get("block_id") == "sin_avances_TECH-8")
 
     assert progress["label"]["text"] == "Avance"
+    assert no_progress["label"]["text"] == "¿Hubo avance hoy?"
     assert no_progress["element"]["type"] == "checkboxes"
     assert no_progress["element"]["options"][0]["text"]["text"] == "Sin avances hoy"
     assert no_progress["element"]["initial_options"][0]["value"] == "sin_avances"
@@ -52,6 +53,7 @@ def test_step_two_of_three_has_back_button_with_stable_action_id():
     assert back is not None
     assert back["type"] == "button"
     assert back["text"]["type"] == "plain_text"
+    assert modal["blocks"][-1]["block_id"] == "guided_nav"
 
 
 def test_step_one_of_three_has_no_back_control():
@@ -65,6 +67,7 @@ def test_step_three_of_three_keeps_back_and_final_submit_text():
     modal = guided_standup_modal("Mi DSU", _TASKS, step=2, answers={}, today="2026-10-06")
 
     assert "guided_back" in _action_ids(modal)
+    assert modal["blocks"][-1]["block_id"] == "guided_nav"
     assert modal["submit"]["text"] == "Enviar"
 
 

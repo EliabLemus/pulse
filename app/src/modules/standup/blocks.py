@@ -938,10 +938,8 @@ def guided_standup_modal(
         }
     ]
     # The modal's own submit is Siguiente/Enviar, so navigation inside the body
-    # is only ever "go back a step". Step 0 has nothing behind it, so no Back.
-    if step > 0:
-        blocks.append(_guided_nav_block())
-
+    # is only ever "go back a step". It is appended after the step content so it
+    # stays immediately above Slack's fixed Cancelar/Siguiente or Cancelar/Enviar footer.
     if step == 0:
         blocks.append(
             {
@@ -976,7 +974,7 @@ def guided_standup_modal(
                     {
                         "type": "input",
                         "block_id": f"sin_avances_{key}",
-                        "label": {"type": "plain_text", "text": "Estado"},
+                        "label": {"type": "plain_text", "text": "¿Hubo avance hoy?"},
                         "optional": True,
                         "element": {
                             "type": "checkboxes",
@@ -1067,6 +1065,9 @@ def guided_standup_modal(
                 },
             ]
         )
+
+    if step > 0:
+        blocks.append(_guided_nav_block())
 
     return {
         "type": "modal",
