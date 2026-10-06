@@ -94,13 +94,18 @@ def test_state_round_trip_preserves_compass_context_and_wizard_values():
         channel="C1",
         compass_tasks=[{"key": "TECH-8", "title": "Deploy"}],
         wizard_step=2,
-        wizard_answers={"progress": {"TECH-8": "Listo para QA."}, "priority_key": "TECH-8"},
+        wizard_answers={
+            "progress": {"TECH-8": "Listo para QA."},
+            "sin_avances": ["TECH-9"],
+            "priority_key": "TECH-8",
+        },
     )
 
     restored = _deserialize(_serialize(session))
 
     assert restored.compass_tasks == [{"key": "TECH-8", "title": "Deploy"}]
     assert restored.wizard_step == 2
+    assert restored.wizard_answers["sin_avances"] == ["TECH-9"]
     assert restored.wizard_answers["priority_key"] == "TECH-8"
 
 

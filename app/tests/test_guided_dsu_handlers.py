@@ -155,7 +155,26 @@ def test_step0_key_only_progress_is_rejected_on_the_exact_field():
     assert "progress" not in session.wizard_answers
 
 
-def test_step0_all_blank_progress_requires_one_substantive_update():
+def test_step0_identity_only_text_with_no_progress_mark_records_the_mark():
+    _guided_session(wizard_step=0)
+    client = MagicMock()
+    ack = AckRecorder()
+    values = {
+        "progress_TECH-8": {"value": {"value": "TECH-8"}},
+        "sin_avances_TECH-8": {"value": {"selected_options": [{"value": "sin_avances"}]}},
+    }
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
+
+    assert ack.calls == [{}]
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    assert session.wizard_answers["progress"] == {}
+    assert session.wizard_answers["sin_avances"] == ["TECH-8"]
+
+
+def test_step0_all_blank_progress_requires_an_explicit_status():
     _guided_session(wizard_step=0)
     client = MagicMock()
     ack = AckRecorder()
@@ -163,8 +182,93 @@ def test_step0_all_blank_progress_requires_one_substantive_update():
     registered = _registered()
     registered[("view", "guided_standup_modal")](ack, _view_body({"progress_TECH-8": {"value": {"value": ""}}}), client)
 
-    assert ack.calls == [{"response_action": "errors", "errors": {"progress_TECH-8": "Comparte un avance sustantivo."}}]
+    assert ack.calls == [
+        {"response_action": "errors", "errors": {"progress_TECH-8": "Describe un avance o marca «Sin avances hoy»."}}
+    ]
     assert handlers.state_store.get("T1:U1").wizard_step == 0
+
+
+def test_step0_all_tickets_marked_without_progress_advances_and_persists_marks():
+    _guided_session(
+        wizard_step=0,
+        compass_tasks=[
+            {"key": "TECH-8", "title": "Despliegue Beta"},
+            {"key": "TECH-9", "title": "Observabilidad"},
+        ],
+    )
+    client = MagicMock()
+    ack = AckRecorder()
+    values = {
+        "progress_TECH-8": {"value": {"value": ""}},
+        "sin_avances_TECH-8": {"value": {"selected_options": [{"value": "sin_avances"}]}},
+        "progress_TECH-9": {"value": {"value": ""}},
+        "sin_avances_TECH-9": {"value": {"selected_options": [{"value": "sin_avances"}]}},
+    }
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
+
+    assert ack.calls == [{}]
+    session = handlers.state_store.get("T1:U1")
+    assert session.wizard_step == 1
+    assert session.wizard_answers["progress"] == {}
+    assert session.wizard_answers["sin_avances"] == ["TECH-8", "TECH-9"]
+
+
+def test_step0_requires_an_explicit_status_for_each_ticket():
+    _guided_session(
+        wizard_step=0,
+        compass_tasks=[
+            {"key": "TECH-8", "title": "Despliegue Beta"},
+            {"key": "TECH-9", "title": "Observabilidad"},
+        ],
+    )
+    client = MagicMock()
+    ack = AckRecorder()
+    values = {
+        "progress_TECH-8": {"value": {"value": ""}},
+        "sin_avances_TECH-8": {"value": {"selected_options": [{"value": "sin_avances"}]}},
+        "progress_TECH-9": {"value": {"value": ""}},
+        "sin_avances_TECH-9": {"value": {"selected_options": []}},
+    }
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
+
+    assert ack.calls == [
+        {"response_action": "errors", "errors": {"progress_TECH-9": "Describe un avance o marca «Sin avances hoy»."}}
+    ]
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    assert session.wizard_step == 0
+
+
+def test_step0_substantive_text_wins_over_the_no_progress_mark():
+    _guided_session(
+        wizard_step=0,
+        compass_tasks=[
+            {"key": "TECH-8", "title": "Despliegue Beta"},
+            {"key": "TECH-9", "title": "Observabilidad"},
+        ],
+    )
+    client = MagicMock()
+    ack = AckRecorder()
+    text = "Terminé la validación con Ada y Manuel."
+    values = {
+        "progress_TECH-8": {"value": {"value": text}},
+        "sin_avances_TECH-8": {"value": {"selected_options": [{"value": "sin_avances"}]}},
+        "progress_TECH-9": {"value": {"value": ""}},
+        "sin_avances_TECH-9": {"value": {"selected_options": [{"value": "sin_avances"}]}},
+    }
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
+
+    assert ack.calls == [{}]
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    assert session.wizard_answers["progress"] == {"TECH-8": text}
+    assert session.wizard_answers["sin_avances"] == ["TECH-9"]
 
 
 def test_step0_valid_next_updates_to_step1_and_preserves_values():
@@ -214,6 +318,39 @@ def test_step1_persists_priority_and_goal_and_shows_step2():
     assert session.wizard_answers["progress"]["TECH-8"] == "avance previo"
     mcp.assert_not_called()
     client.chat_postMessage.assert_not_called()
+
+
+def test_step2_final_submission_keeps_ticket_order_and_marks_no_progress():
+    with patch.object(handlers, "_persist_standup", return_value=42) as persist:
+        _guided_session(
+            wizard_step=2,
+            compass_tasks=[
+                {"key": "TECH-8", "title": "Despliegue Beta"},
+                {"key": "TECH-9", "title": "Observabilidad"},
+            ],
+            wizard_answers={
+                "progress": {"TECH-8": "Terminé la validación del pipeline."},
+                "sin_avances": ["TECH-9"],
+                "priority_key": "TECH-8",
+                "priority_goal": "Cerrar el despliegue a producción",
+            },
+        )
+        client = MagicMock()
+        ack = AckRecorder()
+
+        registered = _registered()
+        registered[("view", "guided_standup_modal")](
+            ack, _view_body({"blockers": {"value": {"value": "Ninguno"}}}), client
+        )
+
+    assert ack.calls == [{}]
+    assert persist.call_args.args[2] == [
+        "TECH-8: Terminé la validación del pipeline.\nTECH-9: Sin avances hoy",
+        "Cerrar el despliegue a producción",
+        "Ninguno",
+    ]
+    assert client.chat_postMessage.call_args.kwargs["channel"] == "U1"
+    assert all(call.kwargs.get("channel") != "C1" for call in client.chat_postMessage.call_args_list)
 
 
 def test_step2_final_submission_persists_confirms_only_in_dm_and_clears_session():
@@ -279,6 +416,25 @@ def test_step2_persistence_failure_keeps_session_for_retry_and_never_confirms_su
     assert client.chat_postMessage.call_args.kwargs["channel"] == "U1"
     assert "No pude guardar" in client.chat_postMessage.call_args.kwargs["text"]
     assert "✅" not in client.chat_postMessage.call_args.kwargs["text"]
+
+
+def test_guided_back_restores_no_progress_marks():
+    _guided_session(wizard_step=1, wizard_answers={"progress": {}, "sin_avances": ["TECH-8"]})
+    client = MagicMock()
+    ack = AckRecorder()
+    body = _view_body(
+        {
+            "priority_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+            "priority_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+        }
+    )
+
+    registered = _registered()
+    registered[("action", "guided_back")](ack, body, client)
+
+    view = client.views_update.call_args.kwargs["view"]
+    marked = next(block for block in view["blocks"] if block.get("block_id") == "sin_avances_TECH-8")
+    assert marked["element"]["initial_options"][0]["value"] == "sin_avances"
 
 
 def test_guided_back_from_priority_preserves_values_and_returns_to_progress():

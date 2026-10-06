@@ -949,13 +949,12 @@ def guided_standup_modal(
                 "block_id": "guided_intro",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Describe avances reales por ticket. Repetir la clave o el título no cuenta como avance.",
+                    "text": "Describe avances reales por ticket. Si no hubo avance, marca *Sin avances hoy*.",
                 },
             }
         )
         for task in tasks:
             key = str(task.get("key") or "Ticket")
-            title = str(task.get("title") or key)
             blocks.extend(
                 [
                     {
@@ -966,12 +965,40 @@ def guided_standup_modal(
                     {
                         "type": "input",
                         "block_id": f"progress_{key}",
-                        "label": {"type": "plain_text", "text": f"Avance para {key}: {title}"[:200]},
+                        "label": {"type": "plain_text", "text": "Avance"},
                         "optional": True,
                         "element": {
                             "type": "rich_text_input",
                             "action_id": "value",
                             **_rich_initial(answers.get("progress", {}).get(key, "")),
+                        },
+                    },
+                    {
+                        "type": "input",
+                        "block_id": f"sin_avances_{key}",
+                        "label": {"type": "plain_text", "text": "Estado"},
+                        "optional": True,
+                        "element": {
+                            "type": "checkboxes",
+                            "action_id": "value",
+                            "options": [
+                                {
+                                    "text": {"type": "plain_text", "text": "Sin avances hoy"},
+                                    "value": "sin_avances",
+                                }
+                            ],
+                            **(
+                                {
+                                    "initial_options": [
+                                        {
+                                            "text": {"type": "plain_text", "text": "Sin avances hoy"},
+                                            "value": "sin_avances",
+                                        }
+                                    ]
+                                }
+                                if key in (answers.get("sin_avances") or [])
+                                else {}
+                            ),
                         },
                     },
                 ]

@@ -23,6 +23,19 @@ def _action_ids(modal: dict) -> list[str]:
     ]
 
 
+def test_step_one_renders_a_per_ticket_no_progress_checkbox_without_repeating_the_title():
+    answers = {"sin_avances": ["TECH-8"]}
+    modal = guided_standup_modal("Mi DSU", _TASKS, step=0, answers=answers, today="2026-10-06")
+
+    progress = next(block for block in modal["blocks"] if block.get("block_id") == "progress_TECH-8")
+    no_progress = next(block for block in modal["blocks"] if block.get("block_id") == "sin_avances_TECH-8")
+
+    assert progress["label"]["text"] == "Avance"
+    assert no_progress["element"]["type"] == "checkboxes"
+    assert no_progress["element"]["options"][0]["text"]["text"] == "Sin avances hoy"
+    assert no_progress["element"]["initial_options"][0]["value"] == "sin_avances"
+
+
 def test_step_two_of_three_has_back_button_with_stable_action_id():
     modal = guided_standup_modal("Mi DSU", _TASKS, step=1, answers={}, today="2026-10-06")
 

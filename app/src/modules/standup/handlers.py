@@ -2061,25 +2061,29 @@ def register_handlers(app: App) -> None:
 
         if step == 0:
             progress: dict[str, str] = {}
-            first_progress_key = ""
+            sin_avances: list[str] = []
             for task in session.compass_tasks:
                 key = str(task.get("key") or "")
                 if not key:
                     continue
-                first_progress_key = first_progress_key or key
                 text = _field_text(f"progress_{key}")
-                if not text.strip():
-                    continue
-                if not is_substantive_ticket_text(text, task):
+                selected_options = values.get(f"sin_avances_{key}", {}).get("value", {}).get("selected_options", [])
+                marked_sin_avances = any(
+                    isinstance(option, dict) and option.get("value") == "sin_avances" for option in selected_options
+                )
+                if text.strip() and is_substantive_ticket_text(text, task):
+                    progress[key] = text
+                elif marked_sin_avances:
+                    sin_avances.append(key)
+                elif text.strip():
                     errors[f"progress_{key}"] = (
                         "Repetir la clave o el título del ticket no cuenta como avance. Describe qué hiciste."
                     )
-                    continue
-                progress[key] = text
-            if not errors and not progress and first_progress_key:
-                errors[f"progress_{first_progress_key}"] = "Comparte un avance sustantivo."
+                else:
+                    errors[f"progress_{key}"] = "Describe un avance o marca «Sin avances hoy»."
             if not errors:
                 answers["progress"] = progress
+                answers["sin_avances"] = sin_avances
         elif step == 1:
             selected = values.get("priority_ticket", {}).get("value", {}).get("selected_option", {})
             if selected.get("value"):
@@ -2111,7 +2115,16 @@ def register_handlers(app: App) -> None:
             client.views_update(view_id=view_id, view=modal)
             return
 
-        progress_lines = [f"{key}: {text}" for key, text in (answers.get("progress") or {}).items() if text.strip()]
+        progress_by_key = answers.get("progress") or {}
+        marked_sin_avances = set(answers.get("sin_avances") or [])
+        progress_lines: list[str] = []
+        for task in session.compass_tasks:
+            key = str(task.get("key") or "")
+            text = str(progress_by_key.get(key) or "")
+            if text.strip():
+                progress_lines.append(f"{key}: {text}")
+            elif key in marked_sin_avances:
+                progress_lines.append(f"{key}: Sin avances hoy")
         question_answers = [
             "\n".join(progress_lines),
             str(answers.get("priority_goal") or ""),
