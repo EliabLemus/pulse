@@ -8,7 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import pytz
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
@@ -46,6 +46,12 @@ _PERMANENT_AUTH_ERRORS = ("token_revoked", "invalid_auth", "account_inactive", "
 # scheduled run. Unbounded retries once re-queued a revoked workspace every
 # minute for as long as the pod stayed up.
 _STANDUP_RETRY_DELAYS = (60, 300, 900)
+
+# Compass sprint whose open tasks are offered as context in the guided DSU.
+_COMPASS_CONTEXT_TEAM = "techops"
+# Core owns only optional injected seams; standup modules register behavior at
+# application wiring time so the dependency direction never becomes core→feature.
+_compass_context_loader: Callable[..., dict[str, list[dict[str, Any]]] | None] | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -393,6 +399,34 @@ def _schedule_today(team_id: str, schedule: dict | None) -> date:
     return local_today(tz_name or "UTC")
 
 
+def _compass_context_client(team_id: str):
+    """Return a read-only Compass client for standup context, or None.
+
+    Injection/lookup seam: tests monkeypatch this to inject a spy client;
+    credential wiring is deliberately out of scope here (no env reads). A
+    None return means "no Compass available" and the run continues without
+    ticket context.
+    """
+    return None
+
+
+def _compass_task_context(team_id: str, members: list[dict]) -> dict[str, list[dict]]:
+    """One batched read of open sprint tasks per member, or {} when unavailable.
+
+    Fail-open by design: a missing loader, a failed client lookup or a Compass
+    error must never stop ordinary scheduled DMs. The feature-owned loader gets
+    all candidate members at once and returns ``{slack_user_id: [task, ...]}``.
+    """
+    try:
+        client = _compass_context_client(team_id)
+        if client is None or _compass_context_loader is None:
+            return {}
+        return _compass_context_loader(client, members, team=_COMPASS_CONTEXT_TEAM) or {}
+    except Exception:  # noqa: BLE001 - fail open; DSU delivery must not abort
+        logger.warning("compass context unavailable for %s; continuing without ticket context", team_id)
+        return {}
+
+
 def _send_standup_to_workspace(
     team_id: str,
     bot_token: str,
@@ -557,6 +591,9 @@ def _send_standup_to_workspace(
 
     failed_count = 0
     dm_count = 0
+    # One batched Compass read for all candidate members, before any DM goes
+    # out; per-member lookups would multiply Compass calls by the team size.
+    compass_tasks_by_user = _compass_task_context(team_id, members)
     for member in members:
         user_id = member["user_id"]
         cache_key = f"{team_id}:{user_id}"
@@ -608,6 +645,7 @@ def _send_standup_to_workspace(
                 questions=questions,
                 standup_name=standup_name,
                 schedule_id=schedule_id,
+                compass_tasks=compass_tasks_by_user.get(user_id, []),
             )
             logger.info("Sent standup DM to %s / %s", team_id, user_id)
         except Exception as exc:

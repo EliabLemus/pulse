@@ -1244,6 +1244,47 @@ def register_handlers(app: App) -> None:
         state_store.clear(cache_key)
         client.chat_postMessage(channel=user_id, text="✅ Got it! You've skipped today's standup. See you tomorrow! 👋")
 
+    @app.action("guided_back")
+    def handle_guided_back(ack, body, client):  # noqa: ANN001
+        """Return one guided-DSU wizard step while preserving entered values."""
+        ack()
+        user_id: str = body["user"]["id"]
+        team_id: str = body["user"]["team_id"]
+        view = body.get("view") or {}
+        cache_key = view.get("private_metadata") or f"{team_id}:{user_id}"
+        session = state_store.get(cache_key)
+        if not session or not session.compass_tasks or session.wizard_step <= 0:
+            _say_once(client, user_id, "⚠️ Your standup session expired. Run `/standup` to start a new one.")
+            return
+
+        import src.modules.standup.blocks as _blocks  # noqa: PLC0415
+
+        answers = dict(session.wizard_answers or {})
+        values = view.get("state", {}).get("values", {})
+        if session.wizard_step == 1:
+            selected = values.get("priority_ticket", {}).get("value", {}).get("selected_option", {})
+            if selected.get("value"):
+                answers["priority_key"] = selected["value"]
+            answers["priority_goal"] = values.get("priority_goal", {}).get("value", {}).get("value") or ""
+        elif session.wizard_step == 2:
+            field = values.get("blockers", {}).get("value", {})
+            rich_text = field.get("rich_text_value")
+            answers["blockers"] = (
+                _blocks.rich_text_to_mrkdwn(rich_text) if rich_text else _blocks.escape_mrkdwn(field.get("value") or "")
+            )
+
+        session.wizard_step -= 1
+        session.wizard_answers = answers
+        state_store.save(session)
+        modal = _blocks.guided_standup_modal(
+            session.standup_name or "Standup",
+            session.compass_tasks,
+            step=session.wizard_step,
+            answers=answers,
+        )
+        modal["private_metadata"] = cache_key
+        client.views_update(view_id=view["id"], view=modal)
+
     @app.action("fill_in_form")
     def handle_fill_in_form(ack, body, client):  # noqa: ANN001
         """Handle 'Fill in form' button — open modal with all questions at once."""
@@ -1260,6 +1301,19 @@ def register_handlers(app: App) -> None:
             return
 
         import src.modules.standup.blocks as _blocks  # noqa: PLC0415
+
+        # A session carrying open Compass tasks runs the guided wizard instead
+        # of the flat form, at the step already reached.
+        if session.compass_tasks:
+            modal = _blocks.guided_standup_modal(
+                session.standup_name or "Standup",
+                session.compass_tasks,
+                step=session.wizard_step,
+                answers=dict(session.wizard_answers or {}),
+            )
+            modal["private_metadata"] = cache_key
+            client.views_open(trigger_id=body["trigger_id"], view=modal)
+            return
 
         # Try to prefill with previous answers (if enabled for this standup)
         previous_answers = []
@@ -1969,6 +2023,115 @@ def register_handlers(app: App) -> None:
 
         # Ask mood after form submission
         _send_mood_block(client, user_id)
+
+    @app.view("guided_standup_modal")
+    def handle_guided_standup_submit(ack, body, client):  # noqa: ANN001
+        """Advance one step of the Compass-aware DSU wizard.
+
+        Each submission collects the current step's fields into the session's
+        ``wizard_answers`` and redraws the modal at the next step with
+        ``views.update``, so what was typed survives navigation. Only the last
+        step closes the flow; this handler never calls Compass, never posts to
+        a channel, and never touches a ticket — finalization is owned by the
+        caller that started the guided session.
+        """
+        user_id: str = body["user"]["id"]
+        team_id: str = body["user"]["team_id"]
+        values = body["view"]["state"]["values"]
+        view_id = body["view"]["id"]
+        cache_key = body["view"].get("private_metadata") or f"{team_id}:{user_id}"
+
+        session = state_store.get(cache_key)
+        if not session or not session.compass_tasks:
+            ack()
+            _say_once(client, user_id, "⚠️ Your standup session expired. Run `/standup` to start a new one.")
+            return
+
+        import src.modules.standup.blocks as _blocks  # noqa: PLC0415
+        from src.modules.standup.compass import is_substantive_ticket_text  # noqa: PLC0415
+
+        step = max(0, min(session.wizard_step, 2))
+        answers = dict(session.wizard_answers or {})
+        errors: dict[str, str] = {}
+
+        def _field_text(block_id: str) -> str:
+            field = values.get(block_id, {}).get("value", {})
+            rt = field.get("rich_text_value")
+            return _blocks.rich_text_to_mrkdwn(rt) if rt else _blocks.escape_mrkdwn(field.get("value") or "")
+
+        if step == 0:
+            progress: dict[str, str] = {}
+            first_progress_key = ""
+            for task in session.compass_tasks:
+                key = str(task.get("key") or "")
+                if not key:
+                    continue
+                first_progress_key = first_progress_key or key
+                text = _field_text(f"progress_{key}")
+                if not text.strip():
+                    continue
+                if not is_substantive_ticket_text(text, task):
+                    errors[f"progress_{key}"] = (
+                        "Repetir la clave o el título del ticket no cuenta como avance. Describe qué hiciste."
+                    )
+                    continue
+                progress[key] = text
+            if not errors and not progress and first_progress_key:
+                errors[f"progress_{first_progress_key}"] = "Comparte un avance sustantivo."
+            if not errors:
+                answers["progress"] = progress
+        elif step == 1:
+            selected = values.get("priority_ticket", {}).get("value", {}).get("selected_option", {})
+            if selected.get("value"):
+                answers["priority_key"] = selected["value"]
+            goal = values.get("priority_goal", {}).get("value", {}).get("value") or ""
+            answers["priority_goal"] = goal
+        else:
+            answers["blockers"] = _field_text("blockers")
+
+        if errors:
+            # Slack keeps the modal open with the message next to the field;
+            # nothing is stored, so the typed values are not lost either.
+            ack(response_action="errors", errors=errors)
+            return
+        ack()
+
+        session.wizard_step = step + 1
+        session.wizard_answers = answers
+        state_store.save(session)
+
+        if step < 2:
+            modal = _blocks.guided_standup_modal(
+                session.standup_name or "Standup",
+                session.compass_tasks,
+                step=step + 1,
+                answers=answers,
+            )
+            modal["private_metadata"] = cache_key
+            client.views_update(view_id=view_id, view=modal)
+            return
+
+        progress_lines = [f"{key}: {text}" for key, text in (answers.get("progress") or {}).items() if text.strip()]
+        question_answers = [
+            "\n".join(progress_lines),
+            str(answers.get("priority_goal") or ""),
+            str(answers.get("blockers") or ""),
+        ]
+        standup_id = _persist_standup(
+            session.team_id,
+            user_id,
+            question_answers,
+            questions=session.questions,
+            schedule_id=session.schedule_id,
+        )
+        if standup_id is None:
+            session.wizard_step = 2
+            state_store.save(session)
+            _say_once(client, user_id, "⚠️ No pude guardar tu avance. Inténtalo de nuevo.")
+            return
+
+        state_store.clear(cache_key)
+        client.chat_postMessage(channel=user_id, text="✅ Avance enviado.")
 
     @app.action("standup_edit")
     def handle_standup_edit(ack, body, say, client):  # noqa: ANN001

@@ -914,6 +914,193 @@ def standup_form_modal(questions: list[str], standup_name: str, previous_answers
     }
 
 
+def guided_standup_modal(
+    standup_name: str,
+    tasks: list[dict],
+    *,
+    step: int,
+    answers: dict,
+    today: str | None = None,
+) -> dict:
+    """Build one step of the Compass-aware DSU wizard.
+
+    The caller owns navigation and persistence. This pure builder never calls
+    Compass; it renders the task data already captured in the session.
+    """
+    step = max(0, min(step, 2))
+    today_date = _parse_iso_date(today) or datetime.now(timezone.utc).date()
+    task_lines = _guided_ticket_lines(tasks, today_date)
+    blocks: list[dict] = [
+        {
+            "type": "context",
+            "block_id": "guided_step",
+            "elements": [{"type": "mrkdwn", "text": f"*Paso {step + 1}/3* · DSU guiado"}],
+        }
+    ]
+    # The modal's own submit is Siguiente/Enviar, so navigation inside the body
+    # is only ever "go back a step". Step 0 has nothing behind it, so no Back.
+    if step > 0:
+        blocks.append(_guided_nav_block())
+
+    if step == 0:
+        blocks.append(
+            {
+                "type": "section",
+                "block_id": "guided_intro",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Describe avances reales por ticket. Repetir la clave o el título no cuenta como avance.",
+                },
+            }
+        )
+        for task in tasks:
+            key = str(task.get("key") or "Ticket")
+            title = str(task.get("title") or key)
+            blocks.extend(
+                [
+                    {
+                        "type": "section",
+                        "block_id": f"ticket_{key}",
+                        "text": {"type": "mrkdwn", "text": _guided_ticket_line(task, today_date)},
+                    },
+                    {
+                        "type": "input",
+                        "block_id": f"progress_{key}",
+                        "label": {"type": "plain_text", "text": f"Avance para {key}: {title}"[:200]},
+                        "optional": True,
+                        "element": {
+                            "type": "rich_text_input",
+                            "action_id": "value",
+                            **_rich_initial(answers.get("progress", {}).get(key, "")),
+                        },
+                    },
+                ]
+            )
+    elif step == 1:
+        blocks.append(
+            {
+                "type": "section",
+                "block_id": "priority_context",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Tickets del sprint*\n"
+                    + ("\n".join(task_lines) or "No hay tickets abiertos en el sprint."),
+                },
+            }
+        )
+        options = [
+            {"text": {"type": "plain_text", "text": _plain_ticket_label(task)}, "value": str(task.get("key") or "")}
+            for task in tasks
+            if task.get("key")
+        ]
+        options.append(
+            {"text": {"type": "plain_text", "text": "Otra prioridad no asociada a un ticket"}, "value": "other"}
+        )
+        select: dict = {"type": "static_select", "action_id": "value", "options": options}
+        selected = answers.get("priority_key")
+        if selected and any(option["value"] == selected for option in options):
+            select["initial_option"] = next(option for option in options if option["value"] == selected)
+        blocks.extend(
+            [
+                {
+                    "type": "input",
+                    "block_id": "priority_ticket",
+                    "label": {"type": "plain_text", "text": "Tarea principal de hoy"},
+                    "element": select,
+                },
+                {
+                    "type": "input",
+                    "block_id": "priority_goal",
+                    "label": {"type": "plain_text", "text": "Objetivo concreto para hoy"},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "value",
+                        "initial_value": answers.get("priority_goal", ""),
+                    },
+                },
+            ]
+        )
+    else:
+        blocks.extend(
+            [
+                {
+                    "type": "section",
+                    "block_id": "blocker_context",
+                    "text": {"type": "mrkdwn", "text": "*Bloqueos*\nIndica qué necesitas, o escribe `ninguno`."},
+                },
+                {
+                    "type": "input",
+                    "block_id": "blockers",
+                    "label": {"type": "plain_text", "text": "¿Qué te bloquea?"},
+                    "element": {
+                        "type": "rich_text_input",
+                        "action_id": "value",
+                        **_rich_initial(answers.get("blockers", "")),
+                    },
+                },
+            ]
+        )
+
+    return {
+        "type": "modal",
+        "callback_id": "guided_standup_modal",
+        "title": {"type": "plain_text", "text": standup_name[:24]},
+        "submit": {"type": "plain_text", "text": "Enviar" if step == 2 else "Siguiente"},
+        "close": {"type": "plain_text", "text": "Cancelar"},
+        "blocks": blocks,
+    }
+
+
+def _parse_iso_date(value: str | None):
+    try:
+        return datetime.fromisoformat(value).date() if value else None
+    except ValueError:
+        return None
+
+
+def _guided_nav_block() -> dict:
+    """Actions block with the wizard's Back control.
+
+    The action_id is the stable contract the handlers listen for; the value
+    carries no state because the current step already lives in the session.
+    """
+    return {
+        "type": "actions",
+        "block_id": "guided_nav",
+        "elements": [
+            {
+                "type": "button",
+                "action_id": "guided_back",
+                "text": {"type": "plain_text", "text": "Atrás", "emoji": True},
+                "value": "back",
+            }
+        ],
+    }
+
+
+def _guided_ticket_lines(tasks: list[dict], today) -> list[str]:
+    return [_guided_ticket_line(task, today) for task in tasks]
+
+
+def _guided_ticket_line(task: dict, today) -> str:
+    key = str(task.get("key") or "Ticket")
+    title = str(task.get("title") or key)
+    url = str(task.get("url") or f"https://compass.zubale.com/tickets/{key}")
+    suffix = ""
+    due_date = _parse_iso_date(str(task.get("dueDate") or ""))
+    if due_date and due_date <= today:
+        suffix = f" · 🔴 Vencido {due_date.isoformat()}"
+    return f"*<{url}|{key}> — {title}*{suffix}"
+
+
+def _plain_ticket_label(task: dict) -> str:
+    return f"{str(task.get('key') or 'Ticket')} — {str(task.get('title') or '')}"[:75]
+
+
+def _rich_initial(value: object) -> dict:
+    return {"initial_value": mrkdwn_to_rich_text(str(value))} if value else {}
+
+
 # ---------------------------------------------------------------------------
 # Channel message: Standup summary
 # ---------------------------------------------------------------------------

@@ -35,6 +35,9 @@ class UserSession:
     schedule_id: Optional[int] = None  # source schedule — avoids channel-based lookup ambiguity
     editing_standup_id: Optional[int] = None  # set when user is editing an existing submission
     edit_initial_answers: list[str] = field(default_factory=list)  # pre-fill text for each question
+    compass_tasks: list[dict] = field(default_factory=list)  # open tasks rendered in the guided DSU
+    wizard_step: int = 0  # 0=progress, 1=priority, 2=blockers
+    wizard_answers: dict = field(default_factory=dict)  # partial values retained across modal navigation
 
     @property
     def user_id(self) -> str:
@@ -53,6 +56,9 @@ def _serialize(session: "UserSession") -> dict:
         "schedule_id": session.schedule_id,
         "editing_standup_id": session.editing_standup_id,
         "edit_initial_answers": session.edit_initial_answers,
+        "compass_tasks": session.compass_tasks,
+        "wizard_step": session.wizard_step,
+        "wizard_answers": session.wizard_answers,
         "started_at": session.started_at.isoformat(),
     }
 
@@ -80,6 +86,9 @@ def _deserialize(data: dict) -> "UserSession":
         schedule_id=data.get("schedule_id"),
         editing_standup_id=data.get("editing_standup_id"),
         edit_initial_answers=data.get("edit_initial_answers") or [],
+        compass_tasks=data.get("compass_tasks") or [],
+        wizard_step=data.get("wizard_step", 0),
+        wizard_answers=data.get("wizard_answers") or {},
         started_at=_parse_started_at(data.get("started_at")),
     )
 
@@ -105,6 +114,7 @@ class StateStore:
         schedule_id: Optional[int] = None,
         editing_standup_id: Optional[int] = None,
         edit_initial_answers: Optional[list[str]] = None,
+        compass_tasks: Optional[list[dict]] = None,
     ) -> UserSession:
         """Begin a new standup session. cache_key should be 'team_id:user_id'."""
         if not team_id:
@@ -120,6 +130,7 @@ class StateStore:
                 schedule_id=schedule_id,
                 editing_standup_id=editing_standup_id,
                 edit_initial_answers=list(edit_initial_answers) if edit_initial_answers else [],
+                compass_tasks=[dict(task) for task in compass_tasks] if compass_tasks else [],
             )
             session_store.set_session(cache_key, _serialize(session))
             return session
@@ -137,6 +148,12 @@ class StateStore:
             session.answers.append(answer)
             session.step += 1
             session_store.set_session(cache_key, _serialize(session))
+            return session
+
+    def save(self, session: UserSession) -> UserSession:
+        """Persist a session after an atomic in-process update."""
+        with self._lock:
+            session_store.set_session(session.cache_key, _serialize(session))
             return session
 
     def clear(self, cache_key: str) -> None:
