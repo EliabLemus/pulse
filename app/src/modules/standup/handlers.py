@@ -2038,7 +2038,6 @@ def register_handlers(app: App) -> None:
         user_id: str = body["user"]["id"]
         team_id: str = body["user"]["team_id"]
         values = body["view"]["state"]["values"]
-        view_id = body["view"]["id"]
         cache_key = body["view"].get("private_metadata") or f"{team_id}:{user_id}"
 
         session = state_store.get(cache_key)
@@ -2098,8 +2097,6 @@ def register_handlers(app: App) -> None:
             # nothing is stored, so the typed values are not lost either.
             ack(response_action="errors", errors=errors)
             return
-        ack()
-
         session.wizard_step = step + 1
         session.wizard_answers = answers
         state_store.save(session)
@@ -2112,9 +2109,10 @@ def register_handlers(app: App) -> None:
                 answers=answers,
             )
             modal["private_metadata"] = cache_key
-            client.views_update(view_id=view_id, view=modal)
+            ack(response_action="update", view=modal)
             return
 
+        ack()
         progress_by_key = answers.get("progress") or {}
         marked_sin_avances = set(answers.get("sin_avances") or [])
         progress_lines: list[str] = []

@@ -167,7 +167,9 @@ def test_step0_identity_only_text_with_no_progress_mark_records_the_mark():
     registered = _registered()
     registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
 
-    assert ack.calls == [{}]
+    assert ack.calls[0]["response_action"] == "update"
+    assert _has_block(ack.calls[0]["view"], "priority_ticket")
+    client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session is not None
     assert session.wizard_answers["progress"] == {}
@@ -208,7 +210,9 @@ def test_step0_all_tickets_marked_without_progress_advances_and_persists_marks()
     registered = _registered()
     registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
 
-    assert ack.calls == [{}]
+    assert ack.calls[0]["response_action"] == "update"
+    assert _has_block(ack.calls[0]["view"], "priority_ticket")
+    client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session.wizard_step == 1
     assert session.wizard_answers["progress"] == {}
@@ -264,7 +268,9 @@ def test_step0_substantive_text_wins_over_the_no_progress_mark():
     registered = _registered()
     registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
 
-    assert ack.calls == [{}]
+    assert ack.calls[0]["response_action"] == "update"
+    assert _has_block(ack.calls[0]["view"], "priority_ticket")
+    client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session is not None
     assert session.wizard_answers["progress"] == {"TECH-8": text}
@@ -282,11 +288,12 @@ def test_step0_valid_next_updates_to_step1_and_preserves_values():
         ack, _view_body({"progress_TECH-8": {"value": {"value": text}}}), client
     )
 
-    assert ack.calls == [{}]
-    kwargs = client.views_update.call_args.kwargs
-    assert kwargs["view_id"] == "V-1"
-    assert kwargs["view"]["callback_id"] == "guided_standup_modal"
-    assert _has_block(kwargs["view"], "priority_ticket")
+    assert len(ack.calls) == 1
+    assert ack.calls[0]["response_action"] == "update"
+    modal = ack.calls[0]["view"]
+    assert modal["callback_id"] == "guided_standup_modal"
+    assert _has_block(modal, "priority_ticket")
+    client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session.wizard_step == 1
     assert session.wizard_answers["progress"]["TECH-8"] == text
@@ -309,8 +316,10 @@ def test_step1_persists_priority_and_goal_and_shows_step2():
         registered = _registered()
         registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
 
-    assert ack.calls == [{}]
-    assert _has_block(client.views_update.call_args.kwargs["view"], "blockers")
+    assert len(ack.calls) == 1
+    assert ack.calls[0]["response_action"] == "update"
+    assert _has_block(ack.calls[0]["view"], "blockers")
+    client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session.wizard_step == 2
     assert session.wizard_answers["priority_key"] == "TECH-8"
