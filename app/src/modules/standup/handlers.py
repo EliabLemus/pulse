@@ -384,7 +384,7 @@ def _format_guided_channel_post(user_id: str, tasks: list[dict], answers: dict) 
 
     progress = answers.get("progress") or {}
     no_progress = set(answers.get("sin_avances") or [])
-    lines = [f"*<@{user_id}>*", "*Avances por ticket*"]
+    lines = [f"*<@{user_id}>*", "*Avances*", ""]
     for task in tasks:
         key = str(task.get("key") or "")
         title = str(task.get("title") or "")
@@ -395,13 +395,14 @@ def _format_guided_channel_post(user_id: str, tasks: list[dict], answers: dict) 
             update = "_Sin avances hoy_"
         if update:
             identity = f"<{ticket_url(key)}|{key}>"
-            lines.append(f"• {identity}" + (f" — {title}" if title else "") + f"\n{update}")
+            heading = f"• {identity}" + (f" — *{title}*" if title else "")
+            lines.extend([heading, f"  {update}"])
     priority = str(answers.get("priority_goal") or "").strip()
     blockers = str(answers.get("blockers") or "").strip()
     if priority:
-        lines.append(f"*Hoy:* {priority}")
+        lines.extend(["", "*Hoy*", priority])
     if blockers:
-        lines.append(f"*Bloqueos:* {blockers}")
+        lines.extend(["", "*Bloqueos*", blockers])
     return "\n".join(lines)
 
 
@@ -2246,7 +2247,12 @@ def register_handlers(app: App) -> None:
             _say_once(client, user_id, "⚠️ Tu avance ya está pendiente de verificación. No lo reenvíes.")
             return
         try:
-            response = client.chat_postMessage(channel=delivery["channel_id"], text=delivery["channel_text"])
+            response = client.chat_postMessage(
+                channel=delivery["channel_id"],
+                text=delivery["channel_text"],
+                unfurl_links=False,
+                unfurl_media=False,
+            )
         except Exception as exc:
             logger.warning("Could not post guided standup %s to channel: %s", standup_id, exc)
             mark_guided_delivery_unknown(standup_id, str(exc))

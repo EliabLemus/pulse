@@ -330,10 +330,16 @@ def test_step1_persists_priority_and_goal_and_shows_step2():
 
 
 def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_message():
-    delivery = {"channel_id": "C1", "channel_text": "*<@U1>*\n<https://compass.zubale.com/tickets/TECH-8|TECH-8>"}
     with (
         patch.object(handlers, "_persist_guided_submission", return_value=42) as persist,
-        patch.object(handlers, "claim_guided_delivery", return_value=delivery),
+        patch.object(
+            handlers,
+            "claim_guided_delivery",
+            side_effect=lambda _standup_id: {
+                "channel_id": "C1",
+                "channel_text": persist.call_args.kwargs["channel_text"],
+            },
+        ),
         patch.object(handlers, "mark_guided_delivery_delivered") as mark_delivered,
     ):
         _guided_session(
@@ -368,9 +374,21 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
     assert persist.call_args.kwargs["comments"] == [
         {"ticket_key": "TECH-8", "body": "Avance de U1:\nTerminé la validación del pipeline."}
     ]
-    assert client.chat_postMessage.call_args_list[0].kwargs["channel"] == "C1"
-    assert (
-        "<https://compass.zubale.com/tickets/TECH-8|TECH-8>" in client.chat_postMessage.call_args_list[0].kwargs["text"]
+    channel_post = client.chat_postMessage.call_args_list[0].kwargs
+    assert channel_post["channel"] == "C1"
+    assert channel_post["unfurl_links"] is False
+    assert channel_post["unfurl_media"] is False
+    assert channel_post["text"] == (
+        "*<@U1>*\n"
+        "*Avances*\n\n"
+        "• <https://compass.zubale.com/tickets/TECH-8|TECH-8> — *Despliegue Beta*\n"
+        "  Terminé la validación del pipeline.\n"
+        "• <https://compass.zubale.com/tickets/TECH-9|TECH-9> — *Observabilidad*\n"
+        "  _Sin avances hoy_\n\n"
+        "*Hoy*\n"
+        "Cerrar el despliegue a producción\n\n"
+        "*Bloqueos*\n"
+        "Ninguno"
     )
     mark_delivered.assert_called_once_with(42, "1791218007.640279")
     assert client.chat_postMessage.call_args_list[1].kwargs["channel"] == "U1"
