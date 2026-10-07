@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.modules.standup.compass import ticket_url
 from src.modules.standup.compass_context import compass_context_for_members
 
 
@@ -140,10 +139,14 @@ def test_never_calls_write_tools_or_get_ticket():
     assert [name for name, _ in client.calls] == ["active_sprint_assignments"]
 
 
-def test_tasks_preserved_and_url_added_only_when_missing():
+def test_tasks_preserve_mcp_urls_without_inventing_a_ticket_key_route():
     received = [
         {"key": "TECH-8", "title": "Deploy", "statusCategory": "active"},
-        {"key": "TECH-9", "title": "Has link", "url": "https://example.com/keep"},
+        {
+            "key": "TECH-9",
+            "title": "Has portal link",
+            "url": "https://compass.zubale.com/portal/tasks/12345678-1234-1234-1234-123456789abc",
+        },
         {"title": "No key task"},
     ]
     client = SpyCompassClient({"a@zubale.com": received})
@@ -152,13 +155,13 @@ def test_tasks_preserved_and_url_added_only_when_missing():
     context = compass_context_for_members(client, roster, team="techops")
 
     tasks = context["U1"]
-    assert tasks[0] == {"key": "TECH-8", "title": "Deploy", "statusCategory": "active", "url": ticket_url("TECH-8")}
-    assert tasks[1] == {"key": "TECH-9", "title": "Has link", "url": "https://example.com/keep"}
+    assert tasks[0] == {"key": "TECH-8", "title": "Deploy", "statusCategory": "active"}
+    assert tasks[1] == received[1]
     assert tasks[2] == {"title": "No key task"}
-    # The client's own dicts are never mutated in place.
+    # The client-owned task dicts are never mutated in place.
     assert "url" not in received[0]
-    assert received[1]["url"] == "https://example.com/keep"
     # Untouched tasks are passed through as the very objects received.
+    assert tasks[0] is received[0]
     assert tasks[1] is received[1]
     assert tasks[2] is received[2]
 

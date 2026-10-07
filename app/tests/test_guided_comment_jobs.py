@@ -29,7 +29,7 @@ def test_save_guided_submission_persists_standup_delivery_and_comments_together(
         standup_date=date(2026, 10, 6),
         answers=["TECH-8: Validé el pipeline.", "Terminar despliegue", "Ninguno"],
         channel_id="C1",
-        channel_text="*<@U1>*\n• <https://compass.zubale.com/tickets/TECH-8|TECH-8> — Validé el pipeline.",
+        channel_text="*<@U1>*\n• TECH-8 — Validé el pipeline.",
         comments=[{"ticket_key": "TECH-8", "body": "Avance de Ana:\nValidé el pipeline."}],
     )
 

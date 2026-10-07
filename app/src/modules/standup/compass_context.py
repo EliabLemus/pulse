@@ -14,8 +14,6 @@ import logging
 import re
 from typing import Any
 
-from src.modules.standup.compass import ticket_url
-
 logger = logging.getLogger(__name__)
 
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -83,7 +81,7 @@ def compass_context_for_members(
     for email, user_ids in email_to_user_ids.items():
         tasks = _task_list(assignments.get(email) if isinstance(assignments, dict) else None)
         for user_id in user_ids:
-            context[user_id] = [_with_url(task) for task in tasks]
+            context[user_id] = list(tasks)
     return context
 
 
@@ -99,13 +97,3 @@ def _task_list(value: object) -> TaskList:
     if not isinstance(value, list):
         return []
     return [task for task in value if isinstance(task, dict)]
-
-
-def _with_url(task: dict[str, Any]) -> dict[str, Any]:
-    """Add the ticket URL only when the task has a key and no url yet."""
-    key = task.get("key")
-    if not isinstance(key, str) or not key.strip() or "url" in task:
-        return task
-    enriched = dict(task)
-    enriched["url"] = ticket_url(key.strip())
-    return enriched

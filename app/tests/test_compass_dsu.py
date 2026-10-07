@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-from src.modules.standup.compass import CompassClient, is_substantive_ticket_text
+from src.modules.standup.compass import CompassClient, is_substantive_ticket_text, portal_task_url
 
 
 def test_get_ticket_reads_only_the_requested_ticket():
@@ -69,6 +69,26 @@ def test_active_sprint_assignments_filters_done_and_other_assignees_case_insensi
     assert [task["key"] for task in context["eliab.lemus@zubale.com"]] == ["TECH-8"]
 
 
+def test_portal_task_url_accepts_only_exact_compass_task_routes():
+    uuid = "1E2A76CD-29C7-4747-BEBC-3E6474956540"
+    assert portal_task_url({"url": f"https://compass.zubale.com/portal/tasks/{uuid}"}) == (
+        f"https://compass.zubale.com/portal/tasks/{uuid}"
+    )
+    assert portal_task_url({"url": f"https://compass.zubale.com/v2/portal/tasks/{uuid}"}) == (
+        f"https://compass.zubale.com/v2/portal/tasks/{uuid}"
+    )
+    for invalid in (
+        "https://compass.zubale.com/PORTAL/TASKS/1e2a76cd-29c7-4747-bebc-3e6474956540",
+        "https://compass.zubale.com/tickets/TECH-99",
+        "https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540/",
+        "https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540?tab=comments",
+        "https://compass.zubale.com.evil.io/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540",
+        None,
+        42,
+    ):
+        assert portal_task_url({"url": invalid}) == ""
+
+
 def test_title_or_key_only_is_not_substantive_ticket_text():
     task = {"key": "TECH-8", "title": "Despliegue Beta en TechOps ZARM Space"}
 
@@ -129,7 +149,7 @@ def test_guided_modal_renders_ticket_title_link_and_overdue_marker():
                 "key": "TECH-8",
                 "title": "Despliegue Beta",
                 "dueDate": "2026-10-05",
-                "url": "https://compass.zubale.com/tickets/TECH-8",
+                "url": "https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540",
             }
         ],
         step=0,
@@ -148,7 +168,10 @@ def test_guided_modal_renders_ticket_title_link_and_overdue_marker():
     )
     assert modal["callback_id"] == "guided_standup_modal"
     assert "1/3" in text
-    assert "<https://compass.zubale.com/tickets/TECH-8|TECH-8> — Despliegue Beta" in text
+    assert (
+        "<https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540|TECH-8> — Despliegue Beta"
+        in text
+    )
     assert "🔴 Vencido" in text
 
 

@@ -346,8 +346,12 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
             schedule_id=7,
             wizard_step=2,
             compass_tasks=[
-                {"key": "TECH-8", "title": "Despliegue Beta"},
-                {"key": "TECH-9", "title": "Observabilidad"},
+                {"key": "TECH-8", "title": "Despliegue Beta", "url": "https://compass.zubale.com/tickets/TECH-8"},
+                {
+                    "key": "TECH-9",
+                    "title": "Observabilidad",
+                    "url": "https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540",
+                },
             ],
             wizard_answers={
                 "progress": {"TECH-8": "Terminé la validación del pipeline."},
@@ -381,9 +385,9 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
     assert channel_post["text"] == (
         "*<@U1>*\n"
         "*Avances*\n\n"
-        "• <https://compass.zubale.com/tickets/TECH-8|TECH-8> — *Despliegue Beta*\n"
+        "• TECH-8 — *Despliegue Beta*\n"
         "  Terminé la validación del pipeline.\n"
-        "• <https://compass.zubale.com/tickets/TECH-9|TECH-9> — *Observabilidad*\n"
+        "• <https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540|TECH-9> — *Observabilidad*\n"
         "  _Sin avances hoy_\n\n"
         "*Hoy*\n"
         "Cerrar el despliegue a producción\n\n"
@@ -393,6 +397,17 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
     mark_delivered.assert_called_once_with(42, "1791218007.640279")
     assert client.chat_postMessage.call_args_list[1].kwargs["channel"] == "U1"
     assert handlers.state_store.get("T1:U1") is None
+
+
+def test_guided_channel_post_never_links_a_non_compass_task_url():
+    text = handlers._format_guided_channel_post(
+        "U1",
+        [{"key": "TECH-8", "title": "Deploy", "url": "https://example.com/keep"}],
+        {"progress": {"TECH-8": "Listo"}},
+    )
+
+    assert "• TECH-8 — *Deploy*" in text
+    assert "https://example.com/keep" not in text
 
 
 def test_guided_channel_failure_marks_delivery_unknown_and_keeps_the_session():

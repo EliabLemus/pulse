@@ -11,11 +11,18 @@ from urllib.request import Request, urlopen
 logger = logging.getLogger(__name__)
 
 COMPASS_WEB_BASE_URL = "https://compass.zubale.com"
+_PORTAL_TASK_URL_RE = re.compile(
+    rf"^{re.escape(COMPASS_WEB_BASE_URL)}/(?:v2/)?portal/tasks/"
+    r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+)
 
 
-def ticket_url(key: str) -> str:
-    """Return the Compass web URL for a ticket key."""
-    return f"{COMPASS_WEB_BASE_URL}/tickets/{key}"
+def portal_task_url(task: dict[str, Any]) -> str:
+    """Return a verified Compass portal URL, never inventing one from a key."""
+    url = task.get("url")
+    if isinstance(url, str) and _PORTAL_TASK_URL_RE.fullmatch(url):
+        return url
+    return ""
 
 
 def is_substantive_ticket_text(value: str, task: dict[str, Any]) -> bool:

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from src.core.schedule_validation import DEFAULT_QUESTIONS
 from src.modules.standup.blockers import is_blocker_question, reports_a_blocker
+from src.modules.standup.compass import portal_task_url
 from src.modules.standup.quickstart import OPEN_ACTION as QUICKSTART_ACTION
 
 # ---------------------------------------------------------------------------
@@ -1113,12 +1114,13 @@ def _guided_ticket_lines(tasks: list[dict], today) -> list[str]:
 def _guided_ticket_line(task: dict, today) -> str:
     key = str(task.get("key") or "Ticket")
     title = str(task.get("title") or key)
-    url = str(task.get("url") or f"https://compass.zubale.com/tickets/{key}")
+    url = portal_task_url(task)
+    identity = f"<{url}|{key}>" if url else key
     suffix = ""
     due_date = _parse_iso_date(str(task.get("dueDate") or ""))
     if due_date and due_date <= today:
         suffix = f" · 🔴 Vencido {due_date.isoformat()}"
-    return f"*<{url}|{key}> — {title}*{suffix}"
+    return f"*{identity} — {title}*{suffix}"
 
 
 def _plain_ticket_label(task: dict) -> str:

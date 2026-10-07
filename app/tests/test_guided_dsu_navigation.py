@@ -84,7 +84,8 @@ def test_back_control_does_not_replace_ticket_title_link_or_overdue_output():
             for element_text in ([element["text"]] if isinstance(element.get("text"), str) else [])
         ]
     )
-    assert "<https://compass.zubale.com/tickets/TECH-8|TECH-8> — Despliegue Beta" in text
+    assert "TECH-8 — Despliegue Beta" in text
+    assert "<https://compass.zubale.com/tickets/TECH-8|TECH-8>" not in text
     assert "🔴 Vencido" in text
     # The wizard still ends through the modal's own submit, never a Next action.
     assert "guided_next" not in _action_ids(modal)

@@ -380,7 +380,7 @@ def _guided_comment_author_name(client, user_id: str) -> str:
 
 def _format_guided_channel_post(user_id: str, tasks: list[dict], answers: dict) -> str:
     """Render one root post from the captured sprint snapshot only."""
-    from src.modules.standup.compass import ticket_url  # noqa: PLC0415
+    from src.modules.standup.compass import portal_task_url  # noqa: PLC0415
 
     progress = answers.get("progress") or {}
     no_progress = set(answers.get("sin_avances") or [])
@@ -394,7 +394,8 @@ def _format_guided_channel_post(user_id: str, tasks: list[dict], answers: dict) 
         if not update and key in no_progress:
             update = "_Sin avances hoy_"
         if update:
-            identity = f"<{ticket_url(key)}|{key}>"
+            url = portal_task_url(task)
+            identity = f"<{url}|{key}>" if url else key
             heading = f"• {identity}" + (f" — *{title}*" if title else "")
             lines.extend([heading, f"  {update}"])
     priority = str(answers.get("priority_goal") or "").strip()
