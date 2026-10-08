@@ -1014,34 +1014,71 @@ def guided_standup_modal(
                 },
             }
         )
-        options = [
+        primary_options = [
             {"text": {"type": "plain_text", "text": _plain_ticket_label(task)}, "value": str(task.get("key") or "")}
             for task in tasks
             if task.get("key")
         ]
-        options.append(
+        primary_options.append(
             {"text": {"type": "plain_text", "text": "Otra prioridad no asociada a un ticket"}, "value": "other"}
         )
-        select: dict = {"type": "static_select", "action_id": "value", "options": options}
-        selected = answers.get("priority_key")
-        if selected and any(option["value"] == selected for option in options):
-            select["initial_option"] = next(option for option in options if option["value"] == selected)
+        secondary_options = [
+            {"text": {"type": "plain_text", "text": "Ninguno"}, "value": "none"},
+            *[
+                {"text": {"type": "plain_text", "text": _plain_ticket_label(task)}, "value": str(task.get("key") or "")}
+                for task in tasks
+                if task.get("key")
+            ],
+        ]
+        focus_items = guided_focus_items(answers)
+        primary = focus_items[0] if focus_items else {}
+        secondary = focus_items[1] if len(focus_items) > 1 else {}
+        primary_select: dict = {"type": "static_select", "action_id": "value", "options": primary_options}
+        secondary_select: dict = {"type": "static_select", "action_id": "value", "options": secondary_options}
+        primary_key = str(primary.get("key") or "")
+        secondary_key = str(secondary.get("key") or "")
+        if primary_key and any(option["value"] == primary_key for option in primary_options):
+            primary_select["initial_option"] = next(
+                option for option in primary_options if option["value"] == primary_key
+            )
+        if secondary_key and any(option["value"] == secondary_key for option in secondary_options):
+            secondary_select["initial_option"] = next(
+                option for option in secondary_options if option["value"] == secondary_key
+            )
         blocks.extend(
             [
                 {
                     "type": "input",
-                    "block_id": "priority_ticket",
-                    "label": {"type": "plain_text", "text": "Tarea principal de hoy"},
-                    "element": select,
+                    "block_id": "focus_primary_ticket",
+                    "label": {"type": "plain_text", "text": "Foco principal"},
+                    "element": primary_select,
                 },
                 {
                     "type": "input",
-                    "block_id": "priority_goal",
-                    "label": {"type": "plain_text", "text": "Objetivo concreto para hoy"},
+                    "block_id": "focus_primary_goal",
+                    "label": {"type": "plain_text", "text": "Objetivo en el foco principal"},
                     "element": {
                         "type": "plain_text_input",
                         "action_id": "value",
-                        "initial_value": answers.get("priority_goal", ""),
+                        "initial_value": str(primary.get("goal") or ""),
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "focus_secondary_ticket",
+                    "optional": True,
+                    "label": {"type": "plain_text", "text": "Foco secundario — opcional"},
+                    "element": secondary_select,
+                },
+                {
+                    "type": "input",
+                    "block_id": "focus_secondary_goal",
+                    "optional": True,
+                    "label": {"type": "plain_text", "text": "Objetivo en el foco secundario"},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "value",
+                        "initial_value": str(secondary.get("goal") or ""),
                     },
                 },
             ]
@@ -1125,6 +1162,22 @@ def _guided_ticket_line(task: dict, today) -> str:
 
 def _plain_ticket_label(task: dict) -> str:
     return f"{str(task.get('key') or 'Ticket')} — {str(task.get('title') or '')}"[:75]
+
+
+def guided_focus_items(answers: dict) -> list[dict[str, str]]:
+    """Read normalized focus items, preserving in-flight legacy priority answers."""
+    raw = answers.get("focus_items")
+    if isinstance(raw, list):
+        items = [
+            {"key": str(item.get("key") or ""), "goal": str(item.get("goal") or "")}
+            for item in raw
+            if isinstance(item, dict) and str(item.get("key") or "")
+        ]
+        if items:
+            return items[:2]
+    key = str(answers.get("priority_key") or "")
+    goal = str(answers.get("priority_goal") or "")
+    return [{"key": key, "goal": goal}] if key else []
 
 
 def _rich_initial(value: object) -> dict:

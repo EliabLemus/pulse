@@ -29,9 +29,8 @@ class TestRealProductionValues:
 
     def test_the_bullet_case(self):
         """The bot asks for bullets, then the old check failed to strip them."""
-        assert reports_a_blocker("None") is False
-        assert reports_a_blocker("• None") is False
-        assert reports_a_blocker("- none.") is False
+        for value in ("None", "• None", "- none.", "Ninguno", "Sin bloqueos"):
+            assert reports_a_blocker(value) is False
 
     def test_an_emoji_shortcode_does_not_hide_the_answer(self):
         assert reports_a_blocker("No Blocker:saluting_face:") is False

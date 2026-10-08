@@ -132,7 +132,7 @@ def test_fill_in_form_with_compass_tasks_opens_guided_modal_at_session_step():
 
     view = client.views_open.call_args.kwargs["view"]
     assert view["callback_id"] == "guided_standup_modal"
-    assert _has_block(view, "priority_ticket")
+    assert _has_block(view, "focus_primary_ticket")
     assert view["private_metadata"] == "T1:U1"
 
 
@@ -168,7 +168,7 @@ def test_step0_identity_only_text_with_no_progress_mark_records_the_mark():
     registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
 
     assert ack.calls[0]["response_action"] == "update"
-    assert _has_block(ack.calls[0]["view"], "priority_ticket")
+    assert _has_block(ack.calls[0]["view"], "focus_primary_ticket")
     client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session is not None
@@ -211,7 +211,7 @@ def test_step0_all_tickets_marked_without_progress_advances_and_persists_marks()
     registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
 
     assert ack.calls[0]["response_action"] == "update"
-    assert _has_block(ack.calls[0]["view"], "priority_ticket")
+    assert _has_block(ack.calls[0]["view"], "focus_primary_ticket")
     client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session.wizard_step == 1
@@ -269,7 +269,7 @@ def test_step0_substantive_text_wins_over_the_no_progress_mark():
     registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
 
     assert ack.calls[0]["response_action"] == "update"
-    assert _has_block(ack.calls[0]["view"], "priority_ticket")
+    assert _has_block(ack.calls[0]["view"], "focus_primary_ticket")
     client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session is not None
@@ -292,7 +292,7 @@ def test_step0_valid_next_updates_to_step1_and_preserves_values():
     assert ack.calls[0]["response_action"] == "update"
     modal = ack.calls[0]["view"]
     assert modal["callback_id"] == "guided_standup_modal"
-    assert _has_block(modal, "priority_ticket")
+    assert _has_block(modal, "focus_primary_ticket")
     client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session.wizard_step == 1
@@ -300,7 +300,7 @@ def test_step0_valid_next_updates_to_step1_and_preserves_values():
     client.chat_postMessage.assert_not_called()
 
 
-def test_step1_persists_priority_and_goal_and_shows_step2():
+def test_step1_persists_two_focus_items_and_shows_step2():
     from src.modules.standup.compass import CompassClient
 
     mcp = MagicMock()
@@ -309,9 +309,14 @@ def test_step1_persists_priority_and_goal_and_shows_step2():
         client = MagicMock()
         ack = AckRecorder()
         values = {
-            "priority_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
-            "priority_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+            "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+            "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+            "focus_secondary_ticket": {"value": {"selected_option": {"value": "TECH-9"}}},
+            "focus_secondary_goal": {"value": {"value": "Documentar el monitoreo"}},
         }
+        session = handlers.state_store.get("T1:U1")
+        assert session is not None
+        session.compass_tasks.append({"key": "TECH-9", "title": "Observabilidad"})
 
         registered = _registered()
         registered[("view", "guided_standup_modal")](ack, _view_body(values), client)
@@ -321,9 +326,12 @@ def test_step1_persists_priority_and_goal_and_shows_step2():
     assert _has_block(ack.calls[0]["view"], "blockers")
     client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
+    assert session is not None
     assert session.wizard_step == 2
-    assert session.wizard_answers["priority_key"] == "TECH-8"
-    assert session.wizard_answers["priority_goal"] == "Cerrar el despliegue a producción"
+    assert session.wizard_answers["focus_items"] == [
+        {"key": "TECH-8", "goal": "Cerrar el despliegue a producción"},
+        {"key": "TECH-9", "goal": "Documentar el monitoreo"},
+    ]
     assert session.wizard_answers["progress"]["TECH-8"] == "avance previo"
     mcp.assert_not_called()
     client.chat_postMessage.assert_not_called()
@@ -338,6 +346,7 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
             side_effect=lambda _standup_id: {
                 "channel_id": "C1",
                 "channel_text": persist.call_args.kwargs["channel_text"],
+                "channel_blocks": persist.call_args.kwargs["channel_blocks"],
             },
         ),
         patch.object(handlers, "mark_guided_delivery_delivered") as mark_delivered,
@@ -356,8 +365,10 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
             wizard_answers={
                 "progress": {"TECH-8": "Terminé la validación del pipeline."},
                 "sin_avances": ["TECH-9"],
-                "priority_key": "TECH-8",
-                "priority_goal": "Cerrar el despliegue a producción",
+                "focus_items": [
+                    {"key": "TECH-8", "goal": "Cerrar el despliegue a producción"},
+                    {"key": "TECH-9", "goal": "Documentar el monitoreo"},
+                ],
             },
         )
         client = MagicMock()
@@ -372,7 +383,7 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
     assert ack.calls == [{}]
     assert persist.call_args.kwargs["answers"] == [
         "TECH-8: Terminé la validación del pipeline.\nTECH-9: Sin avances hoy",
-        "Cerrar el despliegue a producción",
+        "TECH-8: Cerrar el despliegue a producción\nTECH-9: Documentar el monitoreo",
         "Ninguno",
     ]
     assert persist.call_args.kwargs["comments"] == [
@@ -389,11 +400,16 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
         "  Terminé la validación del pipeline.\n"
         "• <https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540|TECH-9> — *Observabilidad*\n"
         "  _Sin avances hoy_\n\n"
-        "*Hoy*\n"
-        "Cerrar el despliegue a producción\n\n"
-        "*Bloqueos*\n"
-        "Ninguno"
+        "*Foco de hoy*\n"
+        "• TECH-8 — *Despliegue Beta*\n"
+        "  Cerrar el despliegue a producción\n"
+        "• <https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540|TECH-9> — *Observabilidad*\n"
+        "  Documentar el monitoreo"
     )
+    assert [block["type"] for block in channel_post["blocks"]] == ["header", "context", "section", "divider", "section"]
+    assert "TECH-55" not in str(channel_post["blocks"])
+    assert "TECH-8" in str(channel_post["blocks"])
+    assert "TECH-9" in str(channel_post["blocks"])
     mark_delivered.assert_called_once_with(42, "1791218007.640279")
     assert client.chat_postMessage.call_args_list[1].kwargs["channel"] == "U1"
     assert handlers.state_store.get("T1:U1") is None
@@ -506,8 +522,8 @@ def test_guided_back_restores_no_progress_marks():
     ack = AckRecorder()
     body = _view_body(
         {
-            "priority_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
-            "priority_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+            "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+            "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
         }
     )
 
@@ -525,8 +541,8 @@ def test_guided_back_from_priority_preserves_values_and_returns_to_progress():
     ack = AckRecorder()
     body = _view_body(
         {
-            "priority_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
-            "priority_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+            "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+            "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
         }
     )
 
@@ -538,5 +554,4 @@ def test_guided_back_from_priority_preserves_values_and_returns_to_progress():
     assert _has_block(client.views_update.call_args.kwargs["view"], "progress_TECH-8")
     session = handlers.state_store.get("T1:U1")
     assert session.wizard_step == 0
-    assert session.wizard_answers["priority_key"] == "TECH-8"
-    assert session.wizard_answers["priority_goal"] == "Cerrar el despliegue a producción"
+    assert session.wizard_answers["focus_items"] == [{"key": "TECH-8", "goal": "Cerrar el despliegue a producción"}]

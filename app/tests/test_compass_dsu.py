@@ -175,7 +175,7 @@ def test_guided_modal_renders_ticket_title_link_and_overdue_marker():
     assert "🔴 Vencido" in text
 
 
-def test_guided_priority_step_keeps_ticket_list_and_has_nondefault_other_option():
+def test_guided_focus_step_offers_required_primary_and_optional_secondary_controls():
     from src.modules.standup.blocks import guided_standup_modal
 
     modal = guided_standup_modal(
@@ -186,10 +186,15 @@ def test_guided_priority_step_keeps_ticket_list_and_has_nondefault_other_option(
         today="2026-10-06",
     )
 
-    select = next(block for block in modal["blocks"] if block.get("block_id") == "priority_ticket")["element"]
-    values = [option["value"] for option in select["options"]]
-    assert values == ["TECH-8", "other"]
-    assert "initial_option" not in select
+    blocks = {block.get("block_id"): block for block in modal["blocks"]}
+    primary_ticket = blocks["focus_primary_ticket"]
+    secondary_ticket = blocks["focus_secondary_ticket"]
+    secondary_goal = blocks["focus_secondary_goal"]
+
+    assert [option["value"] for option in primary_ticket["element"]["options"]] == ["TECH-8", "other"]
+    assert [option["value"] for option in secondary_ticket["element"]["options"]] == ["none", "TECH-8"]
+    assert secondary_ticket["optional"] is True
+    assert secondary_goal["optional"] is True
     assert any("Despliegue Beta" in str(block) for block in modal["blocks"])
 
 

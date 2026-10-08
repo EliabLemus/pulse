@@ -30,6 +30,7 @@ def test_save_guided_submission_persists_standup_delivery_and_comments_together(
         answers=["TECH-8: Validé el pipeline.", "Terminar despliegue", "Ninguno"],
         channel_id="C1",
         channel_text="*<@U1>*\n• TECH-8 — Validé el pipeline.",
+        channel_blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "*Avances*"}}],
         comments=[{"ticket_key": "TECH-8", "body": "Avance de Ana:\nValidé el pipeline."}],
     )
 
@@ -64,6 +65,7 @@ def test_guided_submission_detects_a_spanish_blocker(monkeypatch):
         answers=["TECH-8: Validé el pipeline.", "Terminar despliegue", "Necesito acceso a staging"],
         channel_id="C1",
         channel_text="*<@U1>*",
+        channel_blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "*Avances*"}}],
         comments=[],
     )
 

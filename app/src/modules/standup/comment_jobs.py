@@ -21,6 +21,7 @@ def save_guided_submission(
     answers: list[str],
     channel_id: str,
     channel_text: str,
+    channel_blocks: list[dict[str, Any]],
     comments: list[dict[str, str]],
 ) -> int:
     """Atomically save a guided DSU, its root delivery, and comment jobs.
@@ -48,10 +49,19 @@ def save_guided_submission(
             cur.execute(
                 """
                 INSERT INTO guided_standup_deliveries
-                    (standup_id, team_id, user_id, schedule_id, standup_date, channel_id, channel_text)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (standup_id, team_id, user_id, schedule_id, standup_date, channel_id, channel_text, channel_blocks)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (standup_id, team_id, user_id, schedule_id, standup_date, channel_id, channel_text),
+                (
+                    standup_id,
+                    team_id,
+                    user_id,
+                    schedule_id,
+                    standup_date,
+                    channel_id,
+                    channel_text,
+                    db.psycopg2.extras.Json(channel_blocks),
+                ),
             )
             for comment in comments:
                 cur.execute(
@@ -65,7 +75,7 @@ def save_guided_submission(
     return standup_id
 
 
-def claim_guided_delivery(standup_id: int) -> dict[str, str] | None:
+def claim_guided_delivery(standup_id: int) -> dict[str, Any] | None:
     """Claim a root post once; processing and unknown states are never replayed."""
     with db.db_conn() as conn:
         with conn.cursor(cursor_factory=db.psycopg2.extras.RealDictCursor) as cur:
@@ -74,7 +84,7 @@ def claim_guided_delivery(standup_id: int) -> dict[str, str] | None:
                 UPDATE guided_standup_deliveries
                 SET state = 'processing', claimed_at = NOW()
                 WHERE standup_id = %s AND state = 'pending'
-                RETURNING channel_id, channel_text
+                RETURNING channel_id, channel_text, channel_blocks
                 """,
                 (standup_id,),
             )

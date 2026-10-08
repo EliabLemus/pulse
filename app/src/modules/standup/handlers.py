@@ -319,6 +319,7 @@ def _persist_guided_submission(
     user_id: str,
     answers: list[str],
     channel_text: str,
+    channel_blocks: list[dict],
     comments: list[dict[str, str]],
 ) -> int | None:
     """Persist a guided DSU and all delivery work atomically, without a Compass key."""
@@ -337,6 +338,7 @@ def _persist_guided_submission(
             answers=answers,
             channel_id=session.channel,
             channel_text=channel_text,
+            channel_blocks=channel_blocks,
             comments=comments,
         )
     except Exception as exc:
@@ -344,7 +346,7 @@ def _persist_guided_submission(
         return None
 
 
-def claim_guided_delivery(standup_id: int) -> dict[str, str] | None:
+def claim_guided_delivery(standup_id: int) -> dict | None:
     """Claim a root delivery through the durable queue."""
     from src.modules.standup.comment_jobs import claim_guided_delivery as _claim  # noqa: PLC0415
 
@@ -378,8 +380,69 @@ def _guided_comment_author_name(client, user_id: str) -> str:
     return user_id
 
 
-def _format_guided_channel_post(user_id: str, tasks: list[dict], answers: dict) -> str:
-    """Render one root post from the captured sprint snapshot only."""
+def _guided_focus_items(values: dict) -> tuple[list[dict[str, str]], dict[str, str]]:
+    """Normalize the two focus controls and report Slack field errors."""
+
+    def selected(block_id: str) -> str:
+        option = values.get(block_id, {}).get("value", {}).get("selected_option", {})
+        return str(option.get("value") or "")
+
+    def text(block_id: str) -> str:
+        return str(values.get(block_id, {}).get("value", {}).get("value") or "").strip()
+
+    primary_key = selected("focus_primary_ticket")
+    primary_goal = text("focus_primary_goal")
+    secondary_key = selected("focus_secondary_ticket")
+    secondary_goal = text("focus_secondary_goal")
+    errors: dict[str, str] = {}
+    if not primary_key:
+        errors["focus_primary_ticket"] = "Selecciona el foco principal."
+    if not primary_goal:
+        errors["focus_primary_goal"] = "Describe el objetivo del foco principal."
+    if secondary_key == "other":
+        errors["focus_secondary_ticket"] = "El foco secundario debe ser un ticket del sprint o Ninguno."
+    elif secondary_key and secondary_key != "none":
+        if secondary_key == primary_key:
+            errors["focus_secondary_ticket"] = "El foco secundario debe ser distinto del principal."
+        if not secondary_goal:
+            errors["focus_secondary_goal"] = "Describe el objetivo del foco secundario."
+    items = [{"key": primary_key, "goal": primary_goal}] if primary_key and primary_goal else []
+    if secondary_key and secondary_key != "none" and secondary_goal:
+        items.append({"key": secondary_key, "goal": secondary_goal})
+    return items, errors
+
+
+def _guided_focus_lines(tasks: list[dict], answers: dict) -> list[str]:
+    """Render focus items from the captured snapshot, never from Compass."""
+
+    from src.modules.standup.blocks import guided_focus_items  # noqa: PLC0415
+    from src.modules.standup.compass import portal_task_url  # noqa: PLC0415
+
+    tasks_by_key = {str(task.get("key") or ""): task for task in tasks}
+    lines: list[str] = []
+    for focus in guided_focus_items(answers):
+        key = str(focus.get("key") or "")
+        goal = str(focus.get("goal") or "").strip()
+        if not goal:
+            continue
+        task = tasks_by_key.get(key)
+        if not task or key == "other":
+            if key and key != "other":
+                logger.warning("Guided focus key %s is absent from the captured sprint snapshot", key)
+            lines.extend(["• Prioridad no asociada a ticket", f"  {goal}"])
+            continue
+        title = str(task.get("title") or "")
+        url = portal_task_url(task)
+        identity = f"<{url}|{key}>" if url else key
+        heading = f"• {identity}" + (f" — *{title}*" if title else "")
+        lines.extend([heading, f"  {goal}"])
+    return lines
+
+
+def build_guided_channel_message(user_id: str, tasks: list[dict], answers: dict) -> dict[str, object]:
+    """Build equivalent fallback text and Block Kit from one captured snapshot."""
+
+    from src.modules.standup import blockers as _blockers  # noqa: PLC0415
     from src.modules.standup.compass import portal_task_url  # noqa: PLC0415
 
     progress = answers.get("progress") or {}
@@ -398,13 +461,32 @@ def _format_guided_channel_post(user_id: str, tasks: list[dict], answers: dict) 
             identity = f"<{url}|{key}>" if url else key
             heading = f"• {identity}" + (f" — *{title}*" if title else "")
             lines.extend([heading, f"  {update}"])
-    priority = str(answers.get("priority_goal") or "").strip()
+    progress_text = "\n".join(lines[1:]).strip()
+    focus_lines = _guided_focus_lines(tasks, answers)
     blockers = str(answers.get("blockers") or "").strip()
-    if priority:
-        lines.extend(["", "*Hoy*", priority])
-    if blockers:
+    if focus_lines:
+        lines.extend(["", "*Foco de hoy*", *focus_lines])
+    has_blockers = _blockers.reports_a_blocker(blockers)
+    if has_blockers:
         lines.extend(["", "*Bloqueos*", blockers])
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    context_text = f"*<@{user_id}>* · " + ("Con bloqueos" if has_blockers else "Sin bloqueos")
+    blocks: list[dict] = [
+        {"type": "header", "text": {"type": "plain_text", "text": "Daily Standup"}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": context_text}]},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*Avances*\n" + progress_text}},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*Foco de hoy*\n" + "\n".join(focus_lines)}},
+    ]
+    if has_blockers:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Bloqueos*\n" + blockers}})
+    return {"text": text, "blocks": blocks}
+
+
+def _format_guided_channel_post(user_id: str, tasks: list[dict], answers: dict) -> str:
+    """Render one root post from the captured sprint snapshot only."""
+
+    return str(build_guided_channel_message(user_id, tasks, answers)["text"])
 
 
 def _send_question_block(client, user_id: str, question: str, step: int, initial_value: str | None = None) -> None:
@@ -1356,10 +1438,9 @@ def register_handlers(app: App) -> None:
         answers = dict(session.wizard_answers or {})
         values = view.get("state", {}).get("values", {})
         if session.wizard_step == 1:
-            selected = values.get("priority_ticket", {}).get("value", {}).get("selected_option", {})
-            if selected.get("value"):
-                answers["priority_key"] = selected["value"]
-            answers["priority_goal"] = values.get("priority_goal", {}).get("value", {}).get("value") or ""
+            focus_items, errors = _guided_focus_items(values)
+            if not errors:
+                answers["focus_items"] = focus_items
         elif session.wizard_step == 2:
             field = values.get("blockers", {}).get("value", {})
             rich_text = field.get("rich_text_value")
@@ -2178,11 +2259,9 @@ def register_handlers(app: App) -> None:
                 answers["progress"] = progress
                 answers["sin_avances"] = sin_avances
         elif step == 1:
-            selected = values.get("priority_ticket", {}).get("value", {}).get("selected_option", {})
-            if selected.get("value"):
-                answers["priority_key"] = selected["value"]
-            goal = values.get("priority_goal", {}).get("value", {}).get("value") or ""
-            answers["priority_goal"] = goal
+            focus_items, errors = _guided_focus_items(values)
+            if not errors:
+                answers["focus_items"] = focus_items
         else:
             answers["blockers"] = _field_text("blockers")
 
@@ -2222,10 +2301,14 @@ def register_handlers(app: App) -> None:
                 progress_lines.append(f"{key}: Sin avances hoy")
         question_answers = [
             "\n".join(progress_lines),
-            str(answers.get("priority_goal") or ""),
+            "\n".join(
+                f"{focus['key']}: {focus['goal']}" for focus in _blocks.guided_focus_items(answers) if focus.get("goal")
+            ),
             str(answers.get("blockers") or ""),
         ]
-        channel_text = _format_guided_channel_post(user_id, session.compass_tasks, answers)
+        channel_message = build_guided_channel_message(user_id, session.compass_tasks, answers)
+        channel_text = str(channel_message["text"])
+        channel_blocks = list(channel_message["blocks"])
         standup_id = session.guided_submission_id
         if standup_id is None:
             standup_id = _persist_guided_submission(
@@ -2233,6 +2316,7 @@ def register_handlers(app: App) -> None:
                 user_id=user_id,
                 answers=question_answers,
                 channel_text=channel_text,
+                channel_blocks=channel_blocks,
                 comments=comments,
             )
             if standup_id is None:
@@ -2248,12 +2332,15 @@ def register_handlers(app: App) -> None:
             _say_once(client, user_id, "⚠️ Tu avance ya está pendiente de verificación. No lo reenvíes.")
             return
         try:
-            response = client.chat_postMessage(
+            post_kwargs = dict(
                 channel=delivery["channel_id"],
                 text=delivery["channel_text"],
                 unfurl_links=False,
                 unfurl_media=False,
             )
+            if delivery.get("channel_blocks") is not None:
+                post_kwargs["blocks"] = delivery["channel_blocks"]
+            response = client.chat_postMessage(**post_kwargs)
         except Exception as exc:
             logger.warning("Could not post guided standup %s to channel: %s", standup_id, exc)
             mark_guided_delivery_unknown(standup_id, str(exc))
