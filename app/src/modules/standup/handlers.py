@@ -461,7 +461,7 @@ def build_guided_channel_message(user_id: str, tasks: list[dict], answers: dict)
             identity = f"<{url}|{key}>" if url else key
             heading = f"• {identity}" + (f" — *{title}*" if title else "")
             lines.extend([heading, f"  {update}"])
-    progress_text = "\n".join(lines[1:]).strip()
+    progress_text = "\n".join(lines[2:]).strip()
     focus_lines = _guided_focus_lines(tasks, answers)
     blockers = str(answers.get("blockers") or "").strip()
     if focus_lines:

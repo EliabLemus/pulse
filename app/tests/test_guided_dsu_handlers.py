@@ -337,6 +337,113 @@ def test_step1_persists_two_focus_items_and_shows_step2():
     client.chat_postMessage.assert_not_called()
 
 
+def _focus_body(values: dict) -> dict:
+    return _view_body({"progress": {}, "sin_avances": [], **values})
+
+
+def test_step1_secondary_equal_to_primary_is_rejected_and_nothing_is_persisted():
+    _guided_session(wizard_step=1, wizard_answers={"progress": {"TECH-8": "avance previo"}})
+    client = MagicMock()
+    ack = AckRecorder()
+    values = {
+        "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+        "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+        "focus_secondary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+        "focus_secondary_goal": {"value": {"value": "Duplicado"}},
+    }
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _focus_body(values), client)
+
+    assert len(ack.calls) == 1
+    assert ack.calls[0]["response_action"] == "errors"
+    assert ack.calls[0]["errors"] == {"focus_secondary_ticket": "El foco secundario debe ser distinto del principal."}
+    client.views_update.assert_not_called()
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    assert session.wizard_step == 1
+    assert "focus_items" not in session.wizard_answers
+
+
+def test_step1_secondary_without_goal_is_rejected_and_nothing_is_persisted():
+    _guided_session(wizard_step=1, wizard_answers={"progress": {"TECH-8": "avance previo"}})
+    client = MagicMock()
+    ack = AckRecorder()
+    values = {
+        "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+        "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+        "focus_secondary_ticket": {"value": {"selected_option": {"value": "TECH-9"}}},
+        "focus_secondary_goal": {"value": {"value": "   "}},
+    }
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    session.compass_tasks.append({"key": "TECH-9", "title": "Observabilidad"})
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _focus_body(values), client)
+
+    assert len(ack.calls) == 1
+    assert ack.calls[0]["response_action"] == "errors"
+    assert ack.calls[0]["errors"] == {"focus_secondary_goal": "Describe el objetivo del foco secundario."}
+    client.views_update.assert_not_called()
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    assert session.wizard_step == 1
+    assert "focus_items" not in session.wizard_answers
+
+
+def test_step1_secondary_other_is_rejected_and_missing_primary_reports_both_errors():
+    _guided_session(wizard_step=1, wizard_answers={"progress": {"TECH-8": "avance previo"}})
+    client = MagicMock()
+    ack = AckRecorder()
+    values = {
+        "focus_primary_ticket": {"value": {}},
+        "focus_primary_goal": {"value": {}},
+        "focus_secondary_ticket": {"value": {"selected_option": {"value": "other"}}},
+        "focus_secondary_goal": {"value": {"value": "Fuera del sprint"}},
+    }
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _focus_body(values), client)
+
+    assert len(ack.calls) == 1
+    assert ack.calls[0]["response_action"] == "errors"
+    assert ack.calls[0]["errors"] == {
+        "focus_primary_ticket": "Selecciona el foco principal.",
+        "focus_primary_goal": "Describe el objetivo del foco principal.",
+        "focus_secondary_ticket": "El foco secundario debe ser un ticket del sprint o Ninguno.",
+    }
+    client.views_update.assert_not_called()
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    assert session.wizard_step == 1
+    assert "focus_items" not in session.wizard_answers
+
+
+def test_step1_secondary_none_persists_only_the_primary_focus():
+    _guided_session(wizard_step=1, wizard_answers={"progress": {"TECH-8": "avance previo"}})
+    client = MagicMock()
+    ack = AckRecorder()
+    values = {
+        "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+        "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+        "focus_secondary_ticket": {"value": {"selected_option": {"value": "none"}}},
+        "focus_secondary_goal": {"value": {}},
+    }
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _focus_body(values), client)
+
+    assert len(ack.calls) == 1
+    assert ack.calls[0]["response_action"] == "update"
+    assert _has_block(ack.calls[0]["view"], "blockers")
+    client.views_update.assert_not_called()
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    assert session.wizard_step == 2
+    assert session.wizard_answers["focus_items"] == [{"key": "TECH-8", "goal": "Cerrar el despliegue a producción"}]
+
+
 def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_message():
     with (
         patch.object(handlers, "_persist_guided_submission", return_value=42) as persist,
@@ -407,6 +514,7 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
         "  Documentar el monitoreo"
     )
     assert [block["type"] for block in channel_post["blocks"]] == ["header", "context", "section", "divider", "section"]
+    assert channel_post["blocks"][2]["text"]["text"].startswith("*Avances*\n• TECH-8")
     assert "TECH-55" not in str(channel_post["blocks"])
     assert "TECH-8" in str(channel_post["blocks"])
     assert "TECH-9" in str(channel_post["blocks"])
@@ -424,6 +532,98 @@ def test_guided_channel_post_never_links_a_non_compass_task_url():
 
     assert "• TECH-8 — *Deploy*" in text
     assert "https://example.com/keep" not in text
+
+
+def test_guided_channel_post_with_stale_or_freeform_focus_key_stays_plain():
+    import json
+
+    answers = {
+        "progress": {"TECH-8": "Listo"},
+        "focus_items": [
+            {"key": "TECH-99", "goal": "Ticket que ya no está en el snapshot"},
+            {"key": "other", "goal": "Investigar la alerta de Cloud Run"},
+        ],
+    }
+    text = handlers._format_guided_channel_post("U1", [{"key": "TECH-8", "title": "Deploy"}], answers)
+    blocks = handlers.build_guided_channel_message("U1", [{"key": "TECH-8", "title": "Deploy"}], answers)["blocks"]
+
+    assert "TECH-99" not in text
+    assert "• Prioridad no asociada a ticket" in text
+    assert "Investigar la alerta de Cloud Run" in text
+    assert str(blocks).count("Prioridad no asociada a ticket") == 2
+    assert "https://" not in json.dumps(blocks[-1], ensure_ascii=False)
+
+
+def test_step2_claims_legacy_priority_answers_and_posts_historical_delivery_text_only():
+    with (
+        patch.object(handlers, "_persist_guided_submission", return_value=42) as persist,
+        patch.object(
+            handlers,
+            "claim_guided_delivery",
+            side_effect=lambda _standup_id: {
+                "channel_id": "C1",
+                "channel_text": persist.call_args.kwargs["channel_text"],
+                "channel_blocks": None,
+            },
+        ),
+        patch.object(handlers, "mark_guided_delivery_delivered") as mark_delivered,
+    ):
+        _guided_session(
+            schedule_id=7,
+            wizard_step=2,
+            wizard_answers={
+                "progress": {"TECH-8": "Terminé la validación del pipeline."},
+                "priority_key": "TECH-8",
+                "priority_goal": "Cerrar el despliegue a producción",
+            },
+        )
+        client = MagicMock()
+        client.chat_postMessage.side_effect = [{"ts": "1791218007.640279"}, {}]
+        ack = AckRecorder()
+
+        registered = _registered()
+        registered[("view", "guided_standup_modal")](
+            ack, _view_body({"blockers": {"value": {"value": "Ninguno"}}}), client
+        )
+
+    assert ack.calls == [{}]
+    assert persist.call_args.kwargs["answers"][1] == "TECH-8: Cerrar el despliegue a producción"
+    assert [block["type"] for block in persist.call_args.kwargs["channel_blocks"]] == [
+        "header",
+        "context",
+        "section",
+        "divider",
+        "section",
+    ]
+    channel_post = client.chat_postMessage.call_args_list[0].kwargs
+    assert channel_post["channel"] == "C1"
+    assert "blocks" not in channel_post
+    assert "*Foco de hoy*" in channel_post["text"]
+    mark_delivered.assert_called_once_with(42, "1791218007.640279")
+    assert handlers.state_store.get("T1:U1") is None
+
+
+def test_step1_modal_restores_a_legacy_single_focus_session():
+    _guided_session(
+        wizard_step=1,
+        wizard_answers={
+            "progress": {"TECH-8": "avance previo"},
+            "priority_key": "TECH-8",
+            "priority_goal": "Cerrar el despliegue a producción",
+        },
+    )
+    client = MagicMock()
+
+    registered = _registered()
+    registered[("action", "fill_in_form")](AckRecorder(), _form_body(), client)
+
+    blocks = client.views_open.call_args.kwargs["view"]["blocks"]
+    primary = next(block for block in blocks if block.get("block_id") == "focus_primary_ticket")
+    secondary = next(block for block in blocks if block.get("block_id") == "focus_secondary_ticket")
+    assert primary["element"]["initial_option"]["value"] == "TECH-8"
+    goal = next(block for block in blocks if block.get("block_id") == "focus_primary_goal")
+    assert goal["element"]["initial_value"] == "Cerrar el despliegue a producción"
+    assert "initial_option" not in secondary["element"]
 
 
 def test_guided_channel_failure_marks_delivery_unknown_and_keeps_the_session():

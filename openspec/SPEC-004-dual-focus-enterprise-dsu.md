@@ -209,7 +209,7 @@ TECH-87: Documentar el patrón de despliegue
   - Persistir el JSON y devolverlo desde `claim_guided_delivery`.
   - Mantener el fallback para registros sin bloques.
 
-- `app/src/modules/standup/migrations/072_guided_delivery_blocks.sql`
+- `app/src/modules/standup/migrations/073_guided_delivery_blocks.sql`
   - Añadir `channel_blocks JSONB` nullable sin reescribir filas existentes.
   - No añadir defaults que conviertan una entrega histórica en un payload visual artificial.
 
@@ -258,7 +258,7 @@ TECH-87: Documentar el patrón de despliegue
 **Objetivo:** garantizar que el reintento publica el mismo mensaje sin reconstrucción ni lectura externa.
 
 1. Escribir tests RED para persistencia/claim de `channel_blocks` y para fallback de una fila histórica nula.
-2. Añadir la migración `072_guided_delivery_blocks.sql`.
+2. Añadir la migración `073_guided_delivery_blocks.sql`.
 3. Extender persistencia, claim y llamada `chat_postMessage`.
 4. Confirmar que la ruta de error preserva la sesión y que un outcome desconocido no reintenta automáticamente.
 
