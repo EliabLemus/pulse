@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any
 from urllib.request import Request, urlopen
@@ -86,13 +87,21 @@ class CompassClient:
         return payload
 
     def post_comment(self, key: str, body: str) -> None:
-        """Append a human-authored progress comment without mutating ticket fields."""
+        """Append a human-authored progress comment without mutating ticket fields.
+
+        ``PULSE_COMPASS_WRITE_MODE=mock`` is an opt-in rehearsal seam. It
+        records the attempted write locally in logs but never contacts Compass.
+        Production deployments explicitly strip that environment variable.
+        """
         normalized_key = key.strip()
         normalized_body = body.strip()
         if not normalized_key:
             raise ValueError("Compass ticket key is required")
         if not normalized_body:
             raise ValueError("Compass comment body is required")
+        if os.environ.get("PULSE_COMPASS_WRITE_MODE", "").strip().lower() == "mock":
+            logger.warning("PULSE_COMPASS_MOCK_COMMENT key=%s body=%s", normalized_key, normalized_body)
+            return
         self._call_mcp("post_comment", {"key": normalized_key, "body": normalized_body})
 
     def active_sprint_assignments(

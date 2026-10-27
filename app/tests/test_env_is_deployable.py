@@ -30,6 +30,9 @@ NOT_OPERATOR_SET = {
     # Keychain values; the daemon must never receive their credential/context.
     "COMPASS_API_KEY",
     "COMPASS_TEAM",
+    # A one-shot worker rehearsal seam. Production deployment strips it rather
+    # than exposing a mock-write switch on the long-lived chart deployment.
+    "PULSE_COMPASS_WRITE_MODE",
     "PULSE_TEAM_ID",
     "PORT",
     "PATH",

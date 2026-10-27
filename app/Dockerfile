@@ -1,8 +1,12 @@
 FROM python:3.14-slim
 
+# The release version is injected by the TechOps deploy script and persists in
+# both the image metadata and the app's version endpoint.
+ARG APP_VERSION=dev
 LABEL org.opencontainers.image.source="https://github.com/morgenruf/morgenruf"
 LABEL org.opencontainers.image.description="Slack standup bot — structured daily standups"
 LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.revision=$APP_VERSION
 
 # The base image lags Debian security updates by days. Pull them in at build
 # time so a fixed CVE in a system library (OpenSSL, for one) does not fail the
@@ -24,9 +28,6 @@ RUN pip install --no-cache-dir -r requirements.txt \
 COPY src/ ./src/
 COPY teams.yaml.example ./teams.yaml
 
-# The release version, passed by the release workflow. The index route and
-# the MCP server report it.
-ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 
 ENV PYTHONUNBUFFERED=1

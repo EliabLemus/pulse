@@ -140,3 +140,16 @@ def test_compass_client_post_comment_uses_only_key_and_body():
     client.post_comment(" TECH-8 ", " Avance de Ana:\\nListo. ")
 
     client._call_mcp.assert_called_once_with("post_comment", {"key": "TECH-8", "body": "Avance de Ana:\\nListo."})
+
+
+def test_compass_client_mock_mode_never_calls_compass(monkeypatch):
+    """The release rehearsal switch is opt-in and has zero remote write effect."""
+    from src.modules.standup.compass import CompassClient
+
+    monkeypatch.setenv("PULSE_COMPASS_WRITE_MODE", "mock")
+    client = CompassClient("cmp_test")
+    client._call_mcp = MagicMock()
+
+    client.post_comment(" TECH-8 ", " Avance de Ana: Listo. ")
+
+    client._call_mcp.assert_not_called()
