@@ -76,7 +76,10 @@ if [[ "$*" == 'funnel --https=443 off' ]]; then exit {off_exit}; fi
 class CompassEndpointWatchdogTests(unittest.TestCase):
     def assert_no_repair(self, calls: list[str]) -> None:
         self.assertFalse(any(call.startswith("tailscale ") for call in calls), calls)
-        self.assertFalse(any("nexus-2.tailf73d68.ts.net/pulse/healthz" in call and "check-host.net" not in call for call in calls), calls)
+        self.assertFalse(
+            any("nexus-2.tailf73d68.ts.net/pulse/healthz" in call and "check-host.net" not in call for call in calls),
+            calls,
+        )
 
     def test_external_http_200_is_silent_and_does_not_repair(self) -> None:
         result, calls = run_watchdog(check_result([[1, 0.2, "OK", 200, "203.0.113.1"]], None, None))

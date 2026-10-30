@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -23,4 +22,6 @@ def test_deploy_builds_the_release_image_before_migrations_and_pins_httpx():
 
     assert "httpx==0.28.1" in requirements
     assert '"${compose[@]}" build --no-cache app' in deploy_script
-    assert deploy_script.index('"${compose[@]}" build --no-cache app') < deploy_script.index('"${compose[@]}" run --rm --no-deps migrate')
+    assert deploy_script.index('"${compose[@]}" build --no-cache app') < deploy_script.index(
+        '"${compose[@]}" run --rm --no-deps migrate'
+    )

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 from src.modules.connect import blocks as cb
 from src.modules.connect.hours import local_label, zone_city
@@ -27,8 +28,12 @@ class TestLocalTimes:
 
     def test_both_zones_appear(self):
         label = local_label(SLOT, ["Asia/Kolkata", "Europe/Amsterdam"])
-        assert "Kolkata 12:30" in label
-        assert "Amsterdam 09:00" in label
+        # The expected clocks come from the zone database itself, so the test
+        # holds through DST transitions instead of pinning one season.
+        amsterdam = SLOT.astimezone(ZoneInfo("Europe/Amsterdam")).strftime("%H:%M")
+        kolkata = SLOT.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%H:%M")
+        assert f"Amsterdam {amsterdam}" in label
+        assert f"Kolkata {kolkata}" in label
         assert "UTC" not in label
 
     def test_the_earlier_clock_reads_first(self):
