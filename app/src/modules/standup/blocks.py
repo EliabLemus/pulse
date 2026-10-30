@@ -975,7 +975,7 @@ def guided_standup_modal(
                     {
                         "type": "input",
                         "block_id": f"sin_avances_{key}",
-                        "label": {"type": "plain_text", "text": "¿Hubo avance hoy?"},
+                        "label": {"type": "plain_text", "text": f"¿Hubo avance hoy en {key}?"},
                         "optional": True,
                         "element": {
                             "type": "checkboxes",

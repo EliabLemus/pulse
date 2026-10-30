@@ -10,7 +10,11 @@ _TASKS = [
         "title": "Despliegue Beta",
         "dueDate": "2026-10-05",
         "url": "https://compass.zubale.com/tickets/TECH-8",
-    }
+    },
+    {
+        "key": "TECH-9",
+        "title": "Migración a Cloud Run",
+    },
 ]
 
 
@@ -31,10 +35,44 @@ def test_step_one_renders_a_per_ticket_no_progress_checkbox_without_repeating_th
     no_progress = next(block for block in modal["blocks"] if block.get("block_id") == "sin_avances_TECH-8")
 
     assert progress["label"]["text"] == "Avance"
-    assert no_progress["label"]["text"] == "¿Hubo avance hoy?"
+    assert no_progress["label"]["text"] == "¿Hubo avance hoy en TECH-8?"
     assert no_progress["element"]["type"] == "checkboxes"
     assert no_progress["element"]["options"][0]["text"]["text"] == "Sin avances hoy"
     assert no_progress["element"]["initial_options"][0]["value"] == "sin_avances"
+
+
+def test_step_one_no_progress_checks_are_scoped_to_their_own_ticket():
+    """Each checkbox must name its ticket so it cannot read as the next one's.
+
+    Slack renders a label's input block with generous spacing above and below,
+    so with two tickets the bare `¿Hubo avance hoy?` label floated directly
+    under the previous ticket's Avance box and immediately above the NEXT
+    ticket's title — its association was visually ambiguous.
+    """
+    answers = {"sin_avances": ["TECH-8"]}
+    modal = guided_standup_modal("Mi DSU", _TASKS, step=0, answers=answers, today="2026-10-06")
+
+    checks = {
+        block["block_id"]: block
+        for block in modal["blocks"]
+        if str(block.get("block_id", "")).startswith("sin_avances_")
+    }
+    assert set(checks) == {"sin_avances_TECH-8", "sin_avances_TECH-9"}
+    for key in ("TECH-8", "TECH-9"):
+        assert checks[f"sin_avances_{key}"]["label"]["text"] == f"¿Hubo avance hoy en {key}?"
+        # The visible option copy stays the approved vocabulary.
+        assert checks[f"sin_avances_{key}"]["element"]["options"][0]["text"]["text"] == "Sin avances hoy"
+
+    # The checked state still follows only its own ticket's saved answer.
+    assert "initial_options" not in checks["sin_avances_TECH-9"]["element"]
+    assert checks["sin_avances_TECH-8"]["element"]["initial_options"][0]["value"] == "sin_avances"
+
+    # Per-ticket grouping order is stable: each check block follows its own
+    # ticket's title and Avance input, before the next ticket's title.
+    ids = [block.get("block_id") for block in modal["blocks"]]
+    assert ids.index("ticket_TECH-8") < ids.index("progress_TECH-8") < ids.index("sin_avances_TECH-8")
+    assert ids.index("sin_avances_TECH-8") < ids.index("ticket_TECH-9")
+    assert ids.index("ticket_TECH-9") < ids.index("progress_TECH-9") < ids.index("sin_avances_TECH-9")
 
 
 def test_step_two_of_three_has_back_button_with_stable_action_id():
