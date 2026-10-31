@@ -57,6 +57,7 @@ services:
       COMPASS_TEAM: ${COMPASS_TEAM:-techops}
       PULSE_COMPASS_WRITE_MODE: ${PULSE_COMPASS_WRITE_MODE:-}
       PULSE_HEALTHCHECK_OWNER_ID: ${PULSE_HEALTHCHECK_OWNER_ID:-U09GE1J7HDK}
+      COMPASS_USER_KEY_SECRET: ${COMPASS_USER_KEY_SECRET:-}
     depends_on:
       db:
         condition: service_healthy
