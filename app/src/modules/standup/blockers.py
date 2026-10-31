@@ -22,8 +22,9 @@ import re
 
 # A question is about blockers if it says so. Deliberately narrow: a question
 # that does not mention being blocked or stuck should never have its answer
-# counted, which is the bug this module exists to prevent.
-_BLOCKER_QUESTION = re.compile(r"block|blocker|impediment|stuck|blocked", re.I)
+# counted, which is the bug this module exists to prevent. "bloqueo" covers
+# the Spanish question the TechOps team answers (SPEC-001).
+_BLOCKER_QUESTION = re.compile(r"block|blocker|impediment|stuck|blocked|bloqueo", re.I)
 
 # Wording people actually use for "nothing is blocking me".
 _NO_BLOCKER_PHRASES = frozenset(
@@ -59,6 +60,7 @@ _NO_BLOCKER_PHRASES = frozenset(
         "okay",
         "nada",
         "ninguno",
+        "ninguna",
         "sin bloqueo",
         "sin bloqueos",
         "zero",
@@ -76,11 +78,30 @@ _COLLAPSE = re.compile(r"\s+")
 _EMOJI_SHORTCODE = re.compile(r":[a-z0-9_+-]+:")
 _PICTOGRAPH = re.compile("[\U0001f000-\U0001faff\u2600-\u27bf\ufe0f\u2190-\u21ff]")
 
-# Qualifiers that do not change the answer. "nothing for now" is still nothing.
+# Qualifiers that do not change the answer. "nothing for now" is still nothing,
+# and so is "nada por ahora" — the Spanish forms the TechOps team writes
+# (SPEC-001). The strip happens before the phrase checks, and what remains
+# still decides: "bloqueado todavía" is still a blocker.
 _TRAILING_QUALIFIER = re.compile(
-    r"\s*(?:for|as of|right)?\s*(?:now|today|yet|currently|atm|at the moment|so far|this week)\s*$",
+    r"\s*(?:"
+    r"(?:for|as of|right)?\s*(?:now|today|yet|currently|atm|at the moment|so far|this week)"
+    r"|por ahora|por hoy|de momento|(?:por )?esta semana|todav[ií]a|a[uú]n"
+    r")\s*$",
     re.I,
 )
+
+# A per-ticket answer leads with the ticket key ("TECH-43: Sin bloqueos"); the
+# key itself says nothing about being blocked, so it is stripped before the
+# phrase check. Without this, the Compass DSU single form — which answers the
+# blocker question once per ticket — had every negation counted as a blocker.
+# SPEC-001: the separator is optional — "TECH-39 sin bloqueos" (space only)
+# is the same per-ticket negation. The optional separator is followed by a
+# required boundary (\s or end), so "TECH-40abc" never matches.
+_TICKET_PREFIX = re.compile(r"^[a-z][a-z0-9]*-\d+(?:\s*[:：\-–—]\s*|\s+)", re.I)
+
+# normalise strips trailing punctuation, so "TECH-43:" arrives here as the bare
+# key "tech-43". A key with no words after it says nothing about being blocked.
+_TICKET_KEY_ONLY = re.compile(r"^[a-z][a-z0-9]*-\d+$", re.I)
 
 # Answers that are only a quantity: "0", "2", "0h", "4:30 Hrs", "1.5 hours".
 # These come from questions about availability, not about being blocked.
@@ -113,14 +134,28 @@ def reports_a_blocker(answer: str | None) -> bool:
 
     Anything that normalises to a known way of saying "nothing", or that is
     only a quantity, is not a blocker.
+
+    The Compass DSU single form answers the blocker question once per ticket
+    ("TECH-43: Sin bloqueos\\nTECH-44: Sin bloqueos"), so a multi-line answer
+    is judged line by line: a negation on every line is no blocker, while a
+    real blocker on any single line still flags. A leading ticket key says
+    nothing about being blocked, so it is stripped before the phrase check —
+    with the separator optional (SPEC-001), since "TECH-39 sin bloqueos" is
+    the same per-ticket negation.
     """
     text = normalise(answer)
     if not text:
         return False
-    if text in _NO_BLOCKER_PHRASES:
+    lines = [line for line in (raw.strip() for raw in str(answer).replace("\r", "").split("\n")) if line]
+    if len(lines) > 1:
+        return any(reports_a_blocker(line) for line in lines)
+    if text in _NO_BLOCKER_PHRASES or _TICKET_KEY_ONLY.match(text):
         return False
     if _QUANTITY_ONLY.match(text):
         return False
+    stripped = _TICKET_PREFIX.sub("", text).strip()
+    if stripped and stripped != text:
+        return reports_a_blocker(stripped)
     # "• None" and "- none." reduce to "none" above. A short answer built only
     # from repeated no-words ("no, none") is still a no.
     words = {w for w in re.split(r"[\s,/&+]+", text) if w}
