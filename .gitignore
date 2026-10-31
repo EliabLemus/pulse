@@ -23,6 +23,7 @@ frontend/.vite/
 frontend/.tanstack/
 *.tsbuildinfo
 coverage/
+coverage.xml
 frontend/.env.local
 
 frontend/playwright-report/
@@ -34,3 +35,6 @@ tilt_config.json
 
 frontend/playwright-report-production/
 frontend/test-results-production/
+
+# Compass DSU pilot: real techops env file (only .example is committed).
+deploy/.env.techops

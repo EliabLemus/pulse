@@ -5,6 +5,43 @@ Format: [Keep a Changelog](https://keepachangelog.com) | Versioning: [SemVer](ht
 
 ## [Unreleased]
 
+### Changed
+- **Compass DSU presentation/deploy hardening.** The Compass DSU
+  public-ingress watchdog (`deploy/check-compass-dsu-endpoints.sh`) now treats
+  an external check-host.net quorum as authoritative: healthy or inconclusive
+  quorums stay silent and repair nothing, and only a completed failing quorum
+  starts a bounded repair chain — one Funnel re-registration, then one local
+  service-chain repair where a loopback probe gates `docker start` (idempotent,
+  never restart/stop) and `caddy validate` gates the Caddy reload, with
+  recovery always re-proven externally. The health URL, repair containers and
+  Caddyfile are environment-parameterized; the watchdog never restarts or
+  quits Tailscale and never touches Slack, Compass or GUI apps.
+- **Inert-by-default DSU trial rehearsal.** `deploy/send-compass-dsu-trial.sh`
+  performs no external write unless the caller sets
+  `COMPASS_DSU_TRIAL_CONFIRM=YES-SEND-DSU-DM` **and** the app runs with
+  `PULSE_COMPASS_WRITE_MODE=mock`; it exits before any write otherwise. The
+  repo root is derived from the script location, and containers/schedule are
+  environment-parameterized.
+
+### Added
+- **Compass DSU documentation.** README gains a Compass DSU section (guided
+  ticket-aware wizard, dual-focus DSU, verified Compass links, snapshot and
+  comment workers, mock mode, watchdog, safe rehearsal commands) linking
+  `openspec/SPEC-002-guided-ticket-aware-dsu.md` and
+  `openspec/SPEC-004-dual-focus-enterprise-dsu.md`; the RUNBOOK gains
+  operator procedures for the watchdog's bounded repair chain and the trial
+  rehearsal protocol; `deploy/README.md` documents the Compass env wiring
+  including `PULSE_HEALTHCHECK_OWNER_ID`.
+- **Watchdog and trial-script test coverage.** The watchdog test suite now
+  fakes `docker` and `caddy` (no real services are touched) and covers the
+  bounded repair chain, validate-gates-reload, environment parameterization
+  and the absence of destructive commands; a new static safety suite pins the
+  trial script's inert-by-default, dual-gate opt-in and `BASH_SOURCE`-derived
+  root.
+
+### Removed
+- `coverage.xml` is no longer tracked; `deploy/.env.techops` is git-ignored.
+
 ## [1.9.21] - 2026-10-03
 
 ### Added

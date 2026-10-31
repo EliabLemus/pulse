@@ -41,6 +41,46 @@ Job ids that appear in alerts and in `scheduler_runs`:
 | Coffee round | `connect:<team_id>:round:<program_id>` |
 | Coffee catch-up sweep | `connect:<team_id>:catchup` |
 
+## Compass DSU public ingress (TechOps pilot)
+
+The pilot's public endpoint is watched by `deploy/check-compass-dsu-endpoints.sh`
+(cron or manual). Behavior operators must know:
+
+- **Verification is external.** Each run asks a check-host.net quorum (3 nodes)
+  to fetch the public health URL. Healthy or inconclusive quorums are silent
+  and trigger nothing — an inconclusive result (rate limit, malformed reply,
+  too few completed nodes) is never treated as an outage.
+- **Only a completed failing quorum starts the bounded repair chain**, each
+  step at most once:
+  1. Re-register the Tailscale Funnel mapping (off, then on again).
+  2. If ingress is still down externally, one local service-chain repair:
+     a loopback probe of `127.0.0.1:8081/pulse/healthz` decides whether to
+     `docker start` the pilot containers (idempotent — a no-op when they
+     already run), then Caddy is reloaded **only after** its config passes
+     `caddy validate`.
+- **Recovery is always re-proven by a fresh external quorum** before the
+  script reports success.
+- **What it never does:** restart or quit Tailscale, restart or stop
+  containers, reload Caddy with an invalid config, touch Slack or Compass
+  data, or run a second repair round. There is never a "reset harder" path.
+
+Environment knobs: `COMPASS_HEALTH_URL` (public health URL; the pilot host is
+only the default), `COMPASS_LOCAL_BACKEND_URL`, `COMPASS_REPAIR_CONTAINERS`
+(space-separated container list), `COMPASS_CADDYFILE`, `CHECK_HOST_BASE`.
+
+**Exit codes:** `0` healthy, inconclusive, or repaired; `1` with an
+`ALERT: Compass DSU public Funnel ingress remains unavailable after
+registration reset and local repair. <url>` message on stderr when the chain
+did not restore ingress — treat that as a page: verify Tailscale and Caddy
+manually, and check whether the Funnel cert or the tailnet changed.
+
+**Trial rehearsal protocol** (`deploy/send-compass-dsu-trial.sh`): the script
+is inert by default and only prints a summary. To actually send the one-shot
+rehearsal DM, the caller must set `COMPASS_DSU_TRIAL_CONFIRM=YES-SEND-DSU-DM`
+and the app must be running with `PULSE_COMPASS_WRITE_MODE=mock`; it exits
+before any write otherwise (exit 2 when mock mode is missing). Never rehearse
+against a pilot whose Compass writes are live.
+
 ## Missed coffee round or missed standup
 
 1. Check for a missed or failed alert for the job id above, and `/healthz`.

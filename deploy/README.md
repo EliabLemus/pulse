@@ -34,6 +34,25 @@ refer to the same URL-safe password. Use Slack IDs (`T...`, `U...`, `A...`,
 `C...`/`G...`), not display names. The direct pilot needs an `xoxb-...` token
 and the Slack signing secret.
 
+### Compass integration wiring
+
+The Compass DSU integration adds these environment knobs; none holds a secret:
+
+| Variable | Purpose |
+| --- | --- |
+| `PULSE_COMPASS_WRITE_MODE` | `mock` records Compass writes locally instead of sending them (rehearsal). Opt-in and never defaulted on; unset means real writes via the worker. |
+| `PULSE_HEALTHCHECK_OWNER_ID` | Slack user ID that health-check/heartbeat notifications are addressed to (the pilot operator). |
+| `COMPASS_API_KEY` | Never set in `.env.techops` and never baked into the image. The one-shot workers read it from the host keychain (`security find-generic-password -s 'Compass MCP API key'`) and inject it per run; the app daemon holds only a non-secret sentinel. |
+
+Related one-shot workers and scripts (all safe to re-run, none touches data
+on a healthy system): `run-compass-context-worker.sh` (refresh read-only
+sprint snapshots), `run-compass-comment-worker.sh` (deliver queued Compass
+comments), `check-compass-dsu-endpoints.sh` (public-ingress watchdog; see
+RUNBOOK.md), and `send-compass-dsu-trial.sh` (inert-by-default rehearsal;
+requires `COMPASS_DSU_TRIAL_CONFIRM=YES-SEND-DSU-DM` plus mock mode).
+
+`.env.techops` is git-ignored; only `.env.techops.example` is committed.
+
 ## 2. Configure Slack
 
 1. Copy `slack-manifest.techops.json` to a local temporary file.

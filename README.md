@@ -312,6 +312,38 @@ Coffee chat replies are buttons rather than typed commands: **We met**, **Not th
 
 ---
 
+## Compass DSU (TechOps pilot)
+
+For teams already tracking work in [Compass](https://compass.zubale.com), Morgenruf can run the daily sync-up as a **guided, ticket-aware flow** instead of the free-text questionnaire above. Design decisions live in two specs:
+
+- [`openspec/SPEC-002-guided-ticket-aware-dsu.md`](openspec/SPEC-002-guided-ticket-aware-dsu.md) — the three-step guided wizard with sprint-ticket context
+- [`openspec/SPEC-004-dual-focus-enterprise-dsu.md`](openspec/SPEC-004-dual-focus-enterprise-dsu.md) — dual-focus selection (one mandatory primary focus, one optional secondary) with structured Slack publishing
+
+**What changes for the participant.** The DM walks through three steps: pick a primary focus (and optionally a secondary one) from your current sprint tickets, write a short update per ticket, and review before posting. Every published update keeps the ticket's human context — verified Compass portal link, key and title — and the bot refuses key-only or title-only answers so an update always says something the ticket does not.
+
+**What the bot may and may not do.** The integration is *updates-only*: it can publish `post_comment` on a ticket, and nothing else. It never changes status, priority, assignee, sprint, dates or visibility. Ticket links are verified against the Compass portal URL pattern; the bot never invents a link from a ticket key.
+
+**Mock mode for rehearsals.** Set `PULSE_COMPASS_WRITE_MODE=mock` (opt-in; never a default) and Compass writes are recorded locally instead of being sent. The send-trial script refuses to run without it. The real comment worker always runs with the variable cleared, so rehearsal mode can never leak into production writes.
+
+**Snapshot and comment workers.** Compass is reached only from short-lived worker processes, never from the always-on app daemon: `deploy/run-compass-context-worker.sh` refreshes read-only sprint-task snapshots for the DM, and `deploy/run-compass-comment-worker.sh` delivers queued comments. Both read the Compass API key from the host keychain at launch and pass it into the container for one run only; the daemon itself holds no credential.
+
+**Watchdog.** `deploy/check-compass-dsu-endpoints.sh` verifies public ingress from the outside (check-host.net quorum) and stays silent unless a completed quorum fails. Its repair is bounded: re-register the Funnel mapping once, then — only if still down — one local service-chain repair (`docker start` on the pilot containers, gated by a loopback probe, and a Caddy reload gated by `caddy validate`). Recovery is always re-proven externally. It never restarts or quits Tailscale, never restarts or stops containers, and never reloads Caddy with an invalid config.
+
+**Safe rehearsal commands.**
+
+```bash
+# Watchdog: verifies public ingress; silent and inert when healthy.
+./deploy/check-compass-dsu-endpoints.sh
+
+# Trial send: inert by default — prints a summary and exits without
+# contacting Slack, Compass, Docker or the pilot.
+./deploy/send-compass-dsu-trial.sh
+```
+
+Sending the one-shot rehearsal DM additionally requires `COMPASS_DSU_TRIAL_CONFIRM=YES-SEND-DSU-DM` *and* the app running with `PULSE_COMPASS_WRITE_MODE=mock`; otherwise it exits before any write. Operator procedures: see [RUNBOOK.md](RUNBOOK.md) and [deploy/README.md](deploy/README.md).
+
+---
+
 ## MCP Server
 
 Morgenruf exposes its data to AI assistants over MCP, so you can ask questions in plain language instead of reading dashboards. Generate a key in the dashboard under **MCP**, then point your client at `https://api.morgenruf.dev/mcp` with an `Authorization: Bearer <key>` header.
