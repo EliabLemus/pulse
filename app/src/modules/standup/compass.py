@@ -131,7 +131,7 @@ class CompassClient:
                 continue
             assignee = _assignee_email(task.get("assigneeEmail") or task.get("assignee"))
             category = str(task.get("statusCategory") or "").strip().lower()
-            if assignee not in assignments or category not in {"todo", "active", "blocked"}:
+            if assignee not in assignments or category != "active":
                 continue
             assignments[assignee].append(task)
 

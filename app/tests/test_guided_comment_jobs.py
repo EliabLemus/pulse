@@ -87,7 +87,7 @@ def test_worker_posts_claimed_job_then_marks_it_delivered(monkeypatch):
 
     result = comment_worker.run_pending_comments("cmp_test", limit=5)
 
-    assert result == {"delivered": 1, "unknown": 0}
+    assert result == {"delivered": 1, "unknown": 0, "impersonated": 0}
     post_comment.assert_called_once_with("TECH-8", "Avance de Ana:\\nListo.")
     comment_worker.mark_comment_delivered.assert_called_once_with(9)
     comment_worker.mark_comment_unknown.assert_not_called()
@@ -110,7 +110,7 @@ def test_worker_marks_failed_write_unknown_without_retry(monkeypatch):
 
     result = comment_worker.run_pending_comments("cmp_test", limit=5)
 
-    assert result == {"delivered": 0, "unknown": 1}
+    assert result == {"delivered": 0, "unknown": 1, "impersonated": 0}
     mark_unknown.assert_called_once()
     assert mark_unknown.call_args.args[0] == 9
     assert "connection dropped" in mark_unknown.call_args.args[1]
@@ -127,7 +127,79 @@ def test_worker_marks_stale_processing_jobs_unknown_for_alerting(monkeypatch):
 
     result = comment_worker.run_pending_comments("cmp_test", limit=5)
 
-    assert result == {"delivered": 0, "unknown": 1}
+    assert result == {"delivered": 0, "unknown": 1, "impersonated": 0}
+
+
+def test_worker_impersonates_user_with_own_key(monkeypatch):
+    """A job whose user has a stored key is posted through that user's client."""
+    from src.modules.standup import comment_worker
+
+    claimed = [{"id": 9, "user_id": "U7", "ticket_key": "TECH-8", "body": "Listo."}]
+    user_client = MagicMock()
+    monkeypatch.setattr(comment_worker, "claim_pending_comment_jobs", lambda limit: claimed)
+    monkeypatch.setattr(comment_worker, "mark_stale_processing_comments_unknown", lambda: 0)
+    monkeypatch.setattr(comment_worker, "mark_stale_guided_deliveries_unknown", lambda: 0)
+    monkeypatch.setattr(comment_worker, "mark_comment_delivered", MagicMock())
+    monkeypatch.setattr(comment_worker, "mark_comment_unknown", MagicMock())
+    monkeypatch.setattr(comment_worker, "CompassClient", lambda api_key: MagicMock() if api_key == "cmp_global" else user_client)
+
+    import src.modules.standup.user_keys as user_keys
+
+    monkeypatch.setattr(user_keys, "active_key_for_user", lambda user: "cmp_user7" if user == "U7" else None)
+
+    result = comment_worker.run_pending_comments("cmp_global", limit=5)
+
+    assert result == {"delivered": 1, "unknown": 0, "impersonated": 1}
+    user_client.post_comment.assert_called_once_with("TECH-8", "Listo.")
+
+
+def test_worker_falls_back_to_global_key_when_user_has_none(monkeypatch):
+    """Without a stored user key the global client posts; nobody is blocked."""
+    from src.modules.standup import comment_worker
+
+    claimed = [{"id": 9, "user_id": "U7", "ticket_key": "TECH-8", "body": "Listo."}]
+    global_client = MagicMock()
+    monkeypatch.setattr(comment_worker, "claim_pending_comment_jobs", lambda limit: claimed)
+    monkeypatch.setattr(comment_worker, "mark_stale_processing_comments_unknown", lambda: 0)
+    monkeypatch.setattr(comment_worker, "mark_stale_guided_deliveries_unknown", lambda: 0)
+    monkeypatch.setattr(comment_worker, "mark_comment_delivered", MagicMock())
+    monkeypatch.setattr(comment_worker, "mark_comment_unknown", MagicMock())
+    clients = {"cmp_global": global_client}
+    monkeypatch.setattr(comment_worker, "CompassClient", lambda api_key: clients[api_key])
+
+    import src.modules.standup.user_keys as user_keys
+
+    monkeypatch.setattr(user_keys, "active_key_for_user", lambda user: None)
+
+    result = comment_worker.run_pending_comments("cmp_global", limit=5)
+
+    assert result == {"delivered": 1, "unknown": 0, "impersonated": 0}
+    global_client.post_comment.assert_called_once_with("TECH-8", "Listo.")
+
+
+def test_worker_marks_failed_user_key_post_unknown_without_retry(monkeypatch):
+    """A user-key 4xx is an ambiguous durable outcome, never retried."""
+    from src.modules.standup import comment_worker
+
+    claimed = [{"id": 9, "user_id": "U7", "ticket_key": "TECH-8", "body": "Listo."}]
+    mark_unknown = MagicMock()
+    user_client = MagicMock()
+    user_client.post_comment.side_effect = ValueError("Compass rejected the MCP tool call")
+    monkeypatch.setattr(comment_worker, "claim_pending_comment_jobs", lambda limit: claimed)
+    monkeypatch.setattr(comment_worker, "mark_stale_processing_comments_unknown", lambda: 0)
+    monkeypatch.setattr(comment_worker, "mark_stale_guided_deliveries_unknown", lambda: 0)
+    monkeypatch.setattr(comment_worker, "mark_comment_delivered", MagicMock())
+    monkeypatch.setattr(comment_worker, "mark_comment_unknown", mark_unknown)
+    monkeypatch.setattr(comment_worker, "CompassClient", lambda api_key: MagicMock() if api_key == "cmp_global" else user_client)
+
+    import src.modules.standup.user_keys as user_keys
+
+    monkeypatch.setattr(user_keys, "active_key_for_user", lambda user: "cmp_user7")
+
+    result = comment_worker.run_pending_comments("cmp_global", limit=5)
+
+    assert result == {"delivered": 0, "unknown": 1, "impersonated": 0}
+    mark_unknown.assert_called_once()
 
 
 def test_compass_client_post_comment_uses_only_key_and_body():

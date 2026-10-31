@@ -66,10 +66,10 @@ def save_guided_submission(
             for comment in comments:
                 cur.execute(
                     """
-                    INSERT INTO compass_comment_jobs (standup_id, team_id, ticket_key, body)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO compass_comment_jobs (standup_id, team_id, user_id, ticket_key, body)
+                    VALUES (%s, %s, %s, %s, %s)
                     """,
-                    (standup_id, team_id, comment["ticket_key"], comment["body"]),
+                    (standup_id, team_id, user_id, comment["ticket_key"], comment["body"]),
                 )
     logger.info("Queued guided delivery for standup %s with %s comments", standup_id, len(comments))
     return standup_id
@@ -167,7 +167,7 @@ def claim_pending_comment_jobs(limit: int) -> list[dict[str, Any]]:
         SET state = 'processing', claimed_at = NOW()
         FROM selected
         WHERE jobs.id = selected.id
-        RETURNING jobs.id, jobs.ticket_key, jobs.body
+        RETURNING jobs.id, jobs.user_id, jobs.ticket_key, jobs.body
     """
     with db.db_conn() as conn:
         with conn.cursor(cursor_factory=db.psycopg2.extras.RealDictCursor) as cur:
