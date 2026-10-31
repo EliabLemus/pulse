@@ -948,7 +948,7 @@ def guided_standup_modal(
                 "block_id": "guided_intro",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Describe avances reales por ticket. Si no hubo avance, marca *Sin avances hoy*.",
+                    "text": "Reporta el avance de tus tickets en progreso. Escribe en el campo del ticket que sí avanzó; los que no, márcalos con su check de *Sin avances hoy*.",
                 },
             }
         )
@@ -961,24 +961,6 @@ def guided_standup_modal(
             "text": {"type": "plain_text", "text": "Sin avances en el resto de tickets"},
             "value": "sin_avances_resto",
         }
-        blocks.append(
-            {
-                "type": "input",
-                "block_id": "sin_avances_resto",
-                "label": {"type": "plain_text", "text": "¿Nada más que reportar?"},
-                "optional": True,
-                "element": {
-                    "type": "checkboxes",
-                    "action_id": "value",
-                    "options": [sin_avances_resto_option],
-                    **(
-                        {"initial_options": [sin_avances_resto_option]}
-                        if sin_avances_resto
-                        else {}
-                    ),
-                },
-            }
-        )
         for task in tasks:
             key = str(task.get("key") or "Ticket")
             sin_avances_option = {
@@ -998,7 +980,7 @@ def guided_standup_modal(
                         "block_id": f"progress_{key}",
                         "label": {
                             "type": "plain_text",
-                            "text": f"{key} · ¿Qué avance hubo hoy?",
+                            "text": "¿Qué avance hubo hoy?",
                         },
                         "optional": True,
                         "element": {
@@ -1012,7 +994,7 @@ def guided_standup_modal(
                         "block_id": f"sin_avances_{key}",
                         "label": {
                             "type": "plain_text",
-                            "text": f"{key} · Sin avance que reportar",
+                            "text": "Sin avances hoy",
                         },
                         "optional": True,
                         "element": {
@@ -1028,6 +1010,24 @@ def guided_standup_modal(
                     },
                 ]
             )
+        blocks.append(
+            {
+                "type": "input",
+                "block_id": "sin_avances_resto",
+                "label": {"type": "plain_text", "text": "¿Nada más que reportar?"},
+                "optional": True,
+                "element": {
+                    "type": "checkboxes",
+                    "action_id": "value",
+                    "options": [sin_avances_resto_option],
+                    **(
+                        {"initial_options": [sin_avances_resto_option]}
+                        if sin_avances_resto
+                        else {}
+                    ),
+                },
+            }
+        )
     elif step == 1:
         blocks.append(
             {
