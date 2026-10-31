@@ -488,7 +488,10 @@ class TestPublicHelpers:
         pool.getconn.return_value = conn
         with patch.object(db, "_pool", pool):
             db.get_participation_overview("T1", days=7)
-        assert cur.execute.call_count == 4
+        # 6 = two get_conn liveness probes ("SELECT 1": one for the fetch,
+        # one for the holiday list) + the 4 fixed queries; the probe count
+        # is owned by TestGetConnSelfHealing, here we pin the queries.
+        assert cur.execute.call_count == 6
 
 
 class TestSubmissionsNameTheirSchedule:
@@ -827,7 +830,9 @@ class TestDaysBeforeTheScheduleExisted:
         pool.getconn.return_value = conn
         with patch.object(db, "_pool", pool):
             db.get_participation_overview("T1", days=7)
-        schedules_sql = cur.execute.call_args_list[0].args[0]
+        # call 0 is the get_conn liveness probe ("SELECT 1"); the schedules
+        # query is the first real statement.
+        schedules_sql = cur.execute.call_args_list[1].args[0]
         assert "created_at" in schedules_sql
 
 

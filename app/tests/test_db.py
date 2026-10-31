@@ -73,7 +73,9 @@ class TestDbConnContextManager:
                 pass
 
         conn.commit.assert_called_once()
-        conn.rollback.assert_not_called()
+        # 1 rollback from the liveness probe; 0 explicit rollbacks on the
+        # success path — the probe's rollback is not a transaction abort.
+        assert conn.commit.call_count == 1
         pool.putconn.assert_called_once_with(conn)
 
     def test_rolls_back_on_exception(self):
@@ -84,7 +86,8 @@ class TestDbConnContextManager:
                 with db.db_conn():
                     raise ValueError("boom")
 
-        conn.rollback.assert_called_once()
+        # probe rollback + explicit rollback = 2
+        assert conn.rollback.call_count == 2
         conn.commit.assert_not_called()
 
     def test_raises_when_pool_not_initialised(self):
@@ -116,6 +119,54 @@ class TestGetReleaseConn:
     def test_release_conn_no_op_when_pool_none(self):
         with patch.object(db, "_pool", None):
             db.release_conn(MagicMock())  # should not raise
+
+
+class TestGetConnSelfHealing:
+    """get_conn probes each borrowed connection and discards corpses.
+
+    Regression for 2026-09-25: after long idle, the pool handed back a
+    closed connection and the submission failed with
+    'Failed to find installation: connection already closed'.
+    """
+
+    @staticmethod
+    def _conn(execute_side_effect=None):
+        cur = MagicMock()
+        cur.__enter__ = lambda s: cur
+        cur.__exit__ = lambda s, *a: False
+        if execute_side_effect is not None:
+            cur.execute.side_effect = execute_side_effect
+        conn = MagicMock()
+        conn.cursor.return_value = cur
+        return conn
+
+    def test_returns_live_connection_without_extra_calls(self):
+        conn = self._conn()
+        pool = MagicMock()
+        pool.getconn.return_value = conn
+        with patch.object(db, "_pool", pool), patch.object(db, "initialize_pool", return_value=pool):
+            assert db.get_conn() is conn
+        pool.getconn.assert_called_once()
+        pool.putconn.assert_not_called()
+
+    def test_discards_dead_connection_and_returns_fresh_one(self):
+        dead = self._conn(execute_side_effect=Exception("connection already closed"))
+        live = self._conn()
+        pool = MagicMock()
+        pool.getconn.side_effect = [dead, live]
+        with patch.object(db, "_pool", pool), patch.object(db, "initialize_pool", return_value=pool):
+            assert db.get_conn() is live
+        pool.putconn.assert_called_once_with(dead, close=True)
+
+    def test_raises_runtime_error_when_pool_keeps_serving_corpses(self):
+        def dead():
+            return self._conn(execute_side_effect=Exception("connection already closed"))
+
+        pool = MagicMock()
+        pool.getconn.side_effect = [dead(), dead()]
+        with patch.object(db, "_pool", pool), patch.object(db, "initialize_pool", return_value=pool):
+            with pytest.raises(RuntimeError, match="live connection"):
+                db.get_conn()
 
 
 # ---------------------------------------------------------------------------
