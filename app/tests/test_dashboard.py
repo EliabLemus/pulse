@@ -280,13 +280,17 @@ class TestApiReports:
 
     def test_far_past_date_from_is_clamped_to_a_year(self, authed_client):
         """Typing a year sends 0002-09-01 first. That window used to OOM the pod."""
-        from datetime import date, timedelta
+        from datetime import datetime, timedelta, timezone
 
         _db_mock.get_standups.return_value = []
         _db_mock.get_participation_overview.return_value = _overview()
         resp = authed_client.get("/dashboard/api/reports?date_from=0002-09-01")
         assert resp.status_code == 200
-        earliest = (date.today() - timedelta(days=364)).isoformat()
+        # The clamp is a memory bound read on the UTC day (see _clamp_date_from),
+        # so the expected floor comes from the same clock, not the local one:
+        # after 18:00 in Guatemala the two days disagree and only UTC matches
+        # what the endpoint actually sent.
+        earliest = (datetime.now(timezone.utc).date() - timedelta(days=364)).isoformat()
         assert _db_mock.get_standups.call_args.kwargs["from_date"] == earliest
         assert _db_mock.get_participation_overview.call_args.kwargs["start"].isoformat() == earliest
 

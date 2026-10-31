@@ -52,6 +52,10 @@ _COMPASS_CONTEXT_TEAM = "techops"
 # Core owns only optional injected seams; standup modules register behavior at
 # application wiring time so the dependency direction never becomes core→feature.
 _compass_context_loader: Callable[..., dict[str, list[dict[str, Any]]]] | None = None
+# Owner health check: the job builder is module-owned (standup's daily DM that
+# proves the Slack round trip). The module registers it here at wiring time,
+# mirroring the compass context seam, so core never imports the feature module.
+_owner_health_check_builder: Callable[..., None] | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +74,17 @@ def register_compass_context(
     global _compass_context_client, _compass_context_loader
     _compass_context_client = client_factory
     _compass_context_loader = loader
+
+
+def register_owner_health_check_builder(builder: Callable[..., None]) -> None:
+    """Register the module-owned owner health-check job builder.
+
+    Standup calls this at wiring time (see its module ``__init__``), the same
+    way it attaches the compass context seam: core offers the hook, the module
+    owns the behavior, and the dependency stays module→core.
+    """
+    global _owner_health_check_builder
+    _owner_health_check_builder = builder
 
 
 def _refresh_bot_token_if_needed(team_id: str, inst: dict) -> str | None:
@@ -1623,12 +1638,13 @@ def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> Non
 
     # Owner connection check: a daily 09:00 weekday DM with an OK button that
     # proves the Slack/Funnel round trip. Owner-only; weekend silence applies.
-    try:
-        from src.modules.standup.owner_healthcheck import register_owner_health_check  # noqa: PLC0415
-
-        register_owner_health_check(scheduler, team_id, bot_token, schedule_tz)
-    except Exception as exc:
-        logger.warning("Could not register owner health check for %s: %s", team_id, exc)
+    # The job builder is injected by the standup module (module→core only); a
+    # missing builder only means no health-check job, never a failed schedule.
+    if _owner_health_check_builder is not None:
+        try:
+            _owner_health_check_builder(scheduler, team_id, bot_token, schedule_tz)
+        except Exception as exc:
+            logger.warning("Could not register owner health check for %s: %s", team_id, exc)
 
 
 # ---------------------------------------------------------------------------

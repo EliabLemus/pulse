@@ -89,3 +89,98 @@ class TestSchedulerRegistration:
         days = next(str(f) for f in trigger.fields if getattr(f, "name", "") == "day_of_week")
         assert "sat" not in days and "sun" not in days
         assert kwargs["id"] == "owner_health_check_T1"
+
+    def test_the_module_registers_its_builder_on_core_seam(self):
+        """Standup's wiring attaches its builder to core's seam, so core
+        registers the job without ever importing the module. Other test
+        modules reload src.core.scheduler at collection time, which resets
+        module globals, so the wiring is exercised directly here."""
+        import src.core.scheduler as sched_mod
+        from src.modules.standup import configure_owner_health_check
+        from src.modules.standup.owner_healthcheck import register_owner_health_check
+
+        previous = sched_mod._owner_health_check_builder
+        try:
+            sched_mod._owner_health_check_builder = None
+            configure_owner_health_check()
+            assert sched_mod._owner_health_check_builder is register_owner_health_check
+        finally:
+            sched_mod._owner_health_check_builder = previous
+
+    def test_schedule_registration_uses_the_injected_builder(self):
+        """register_schedule_job delegates to the seam: with a builder present
+        the health-check job is added, and a raising builder only logs."""
+        import src.core.scheduler as sched_mod
+
+        scheduler = MagicMock()
+        calls = []
+
+        def builder(sched, team_id, bot_token, tz_name):
+            calls.append((team_id, tz_name))
+
+        previous = sched_mod._owner_health_check_builder
+        try:
+            sched_mod._owner_health_check_builder = builder
+            sched_mod.register_schedule_job(
+                scheduler,
+                {
+                    "team_id": "T1",
+                    "bot_token": "xoxb-test",
+                    "id": 1,
+                    "schedule_time": "09:00",
+                    "schedule_tz": "America/Guatemala",
+                    "schedule_days": "mon,tue,wed,thu,fri",
+                    "channel_id": "C1",
+                    "reminder_minutes": 0,
+                },
+            )
+            assert calls == [("T1", "America/Guatemala")]
+
+            def boom(sched, team_id, bot_token, tz_name):
+                raise RuntimeError("no health check today")
+
+            sched_mod._owner_health_check_builder = boom
+            sched_mod.register_schedule_job(
+                scheduler,
+                {
+                    "team_id": "T2",
+                    "bot_token": "xoxb-test",
+                    "id": 2,
+                    "schedule_time": "09:00",
+                    "schedule_tz": "UTC",
+                    "schedule_days": "mon,tue,wed,thu,fri",
+                    "channel_id": "C2",
+                    "reminder_minutes": 0,
+                },
+            )
+        finally:
+            sched_mod._owner_health_check_builder = previous
+        # The T2 standup job itself survived the builder's failure.
+        assert scheduler.add_job.called
+        assert any(
+            "schedule_T2_2" in str(c) or c.kwargs.get("id") == "schedule_T2_2" for c in scheduler.add_job.call_args_list
+        )
+
+    def test_no_builder_means_no_health_check_and_no_error(self):
+        import src.core.scheduler as sched_mod
+
+        scheduler = MagicMock()
+        previous = sched_mod._owner_health_check_builder
+        try:
+            sched_mod._owner_health_check_builder = None
+            sched_mod.register_schedule_job(
+                scheduler,
+                {
+                    "team_id": "T1",
+                    "bot_token": "xoxb-test",
+                    "id": 1,
+                    "schedule_time": "09:00",
+                    "schedule_tz": "UTC",
+                    "schedule_days": "mon,tue,wed,thu,fri",
+                    "channel_id": "C1",
+                    "reminder_minutes": 0,
+                },
+            )
+        finally:
+            sched_mod._owner_health_check_builder = previous
+        assert not any("owner_health_check" in str(c) for c in scheduler.add_job.call_args_list)

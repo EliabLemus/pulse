@@ -21,7 +21,20 @@ def configure_compass_context() -> None:
     register_compass_context(SnapshotCompassClient, compass_context_for_members)
 
 
+def configure_owner_health_check() -> None:
+    """Attach the standup-owned owner health-check job builder to core's seam.
+
+    Core's scheduler calls the builder when it registers each schedule's jobs;
+    this keeps the dependency module→core, never core→module.
+    """
+    from src.core.scheduler import register_owner_health_check_builder
+    from src.modules.standup.owner_healthcheck import register_owner_health_check
+
+    register_owner_health_check_builder(register_owner_health_check)
+
+
 configure_compass_context()
+configure_owner_health_check()
 
 
 MODULE = ModuleSpec(
