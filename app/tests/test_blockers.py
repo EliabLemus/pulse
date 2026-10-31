@@ -143,3 +143,46 @@ class TestNotApplicable:
     def test_a_real_blocker_containing_a_slash_is_untouched(self):
         assert reports_a_blocker("blocked on the CI/CD pipeline") is True
         assert reports_a_blocker("waiting on n/a approval from legal") is True
+
+
+class TestCompassSingleFormBehaviour:
+    """The per-ticket negations and boundary cases the Compass DSU single
+    form produces (SPEC-001). These pin the behaviour the verifier flagged
+    as untested: Spanish forms, separator-less ticket keys, and the
+    "TECH-40abc" boundary where a key must not be over-stripped.
+    """
+
+    def test_ninguna_is_not_a_blocker(self):
+        assert reports_a_blocker("ninguna") is False
+
+    def test_spanish_trailing_qualifier_is_not_a_blocker(self):
+        assert reports_a_blocker("nada por ahora") is False
+
+    def test_bloqueado_todavia_remains_a_blocker(self):
+        """The qualifier strip must not eat a real blocker: "bloqueado
+        todavía" reduces past "todavía" and still flags."""
+        assert reports_a_blocker("bloqueado todavía") is True
+
+    def test_multiline_all_per_ticket_negations_is_not_a_blocker(self):
+        answer = "TECH-43: Sin bloqueos\nTECH-44: Sin bloqueos\nTECH-39 sin bloqueos"
+        assert reports_a_blocker(answer) is False
+        assert has_blockers(DEFAULT_Q, ["x", "y", answer]) is False
+
+    def test_multiline_with_one_real_blocker_still_flags(self):
+        answer = "TECH-43: Sin bloqueos\nTECH-44: Esperando credenciales de staging"
+        assert reports_a_blocker(answer) is True
+        assert has_blockers(DEFAULT_Q, ["x", "y", answer]) is True
+
+    def test_separator_less_ticket_key_negation_is_not_a_blocker(self):
+        assert reports_a_blocker("TECH-39 sin bloqueos") is False
+
+    def test_ticket_key_only_line_is_not_a_blocker(self):
+        """A key with no words after it says nothing about being blocked."""
+        assert reports_a_blocker("TECH-43") is False
+        assert reports_a_blocker("TECH-43:") is False
+
+    def test_ticket_key_boundary_is_not_over_stripped(self):
+        """ "TECH-40abc" is not a ticket key followed by an answer: the
+        separator-optional prefix must not match it, so the line stays a
+        (real) blocker rather than being stripped to nothing."""
+        assert reports_a_blocker("TECH-40abc") is True

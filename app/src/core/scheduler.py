@@ -19,7 +19,7 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from slack_sdk import WebClient
 
-from src.core.schedule_validation import schedule_config_error
+from src.core.schedule_validation import parse_schedule_days, schedule_config_error
 from src.core.slack_users import (
     fetch_human_users,
     fetch_workspace_directory,
@@ -1461,18 +1461,31 @@ def _default_report_time(schedule_time: str) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
-_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri")
+# Weekday names for the clamped day list, Monday first, matching both
+# APScheduler's day_of_week convention (0 = mon) and
+# schedule_validation.parse_schedule_days.
+_WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri")
 
 
-def _enforce_weekday_days(days: str) -> str:
+def _enforce_weekday_days(days: str) -> str | None:
     """Clamp a schedule's day list to weekdays.
 
     Weekend silence is an owner-level product rule: nothing is ever sent on
-    Saturday or Sunday, regardless of configuration. A day list that names
-    sat/sun is clipped to its weekdays (and to nothing, if it named none).
+    Saturday or Sunday, regardless of configuration. The configured days go
+    through the same canonical parser the rest of the app uses
+    (schedule_validation.parse_schedule_days), so every supported form survives
+    the clamp: "mon-fri", "fri-mon", "*", "0-4", bare numbers and ranges
+    included.
+
+    Returns the kept weekdays as a stable comma-separated value
+    CronTrigger accepts, or None when nothing weekday remains (a weekend-only
+    schedule): the caller deliberately registers nothing rather than letting
+    CronTrigger raise on an empty day list and silently skip the whole row.
     """
-    kept = [day for day in (d.strip().lower() for d in days.split(",")) if day in _WEEKDAYS]
-    return ",".join(kept)
+    weekdays = sorted(day for day in parse_schedule_days(days) if day <= 4)
+    if not weekdays:
+        return None
+    return ",".join(_WEEKDAY_NAMES[day] for day in weekdays)
 
 
 def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> None:
@@ -1496,6 +1509,21 @@ def register_schedule_job(scheduler: BackgroundScheduler, schedule: dict) -> Non
             schedule_id,
             schedule.get("name"),
             config_error,
+        )
+        return
+
+    if schedule_days is None:
+        # Weekend silence wins over configuration, so a weekend-only row
+        # (sat/sun) deliberately gets no jobs at all — not even reports or
+        # reminders. Logged as an error because the row stays Active in the
+        # DB while nothing behind it can ever fire (same shape as #67); the
+        # alternative — an empty day_of_week — makes CronTrigger raise and
+        # _register_schedule_safely swallow it without a word.
+        logger.error(
+            "Schedule %s (%s) runs only on weekends (%r); weekend silence means no jobs are registered",
+            schedule_id,
+            schedule.get("name"),
+            schedule.get("schedule_days"),
         )
         return
 

@@ -29,6 +29,77 @@ DEFAULT_QUESTIONS = (
 _TZ_HINT = "Use an IANA timezone name such as Asia/Kolkata, Europe/London or America/New_York."
 _TIME_HINT = "Use a 24-hour HH:MM time such as 09:30."
 
+# The day list written by the dashboard and the database column default.
+DEFAULT_SCHEDULE_DAYS = "mon,tue,wed,thu,fri"
+
+# Every token APScheduler's day_of_week and this app accept, as weekday
+# numbers with Monday 0 — the same convention CronTrigger uses.
+WEEKDAY_TOKENS = {
+    "mon": 0,
+    "monday": 0,
+    "tue": 1,
+    "tues": 1,
+    "tuesday": 1,
+    "wed": 2,
+    "weds": 2,
+    "wednesday": 2,
+    "thu": 3,
+    "thur": 3,
+    "thurs": 3,
+    "thursday": 3,
+    "fri": 4,
+    "friday": 4,
+    "sat": 5,
+    "saturday": 5,
+    "sun": 6,
+    "sunday": 6,
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+}
+
+WORKING_WEEK = {0, 1, 2, 3, 4}
+
+
+def parse_schedule_days(spec: object) -> set[int]:
+    """Return the weekday numbers a `schedule_days` value fires on (Monday is 0).
+
+    Accepts the shapes APScheduler's `day_of_week` accepts and this app writes:
+    "mon,wed,fri", "mon-fri", "fri-mon", "*" and bare numbers.
+
+    The canonical home of this parser is here, next to the other timing-field
+    rules, so the scheduler can clamp day lists without importing the database
+    module; `src.core.db` re-exports it for its existing callers.
+    """
+    if not isinstance(spec, str) or not spec.strip():
+        spec = DEFAULT_SCHEDULE_DAYS
+    days: set[int] = set()
+    for token in spec.lower().replace(" ", "").split(","):
+        if not token:
+            continue
+        if token == "*":
+            return set(range(7))
+        if "-" in token[1:]:
+            start_txt, _, end_txt = token.partition("-")
+            start = WEEKDAY_TOKENS.get(start_txt)
+            end = WEEKDAY_TOKENS.get(end_txt)
+            if start is None or end is None:
+                continue
+            day = start
+            days.add(day)
+            while day != end:
+                day = (day + 1) % 7
+                days.add(day)
+            continue
+        day = WEEKDAY_TOKENS.get(token)
+        if day is not None:
+            days.add(day)
+    return days or set(WORKING_WEEK)
+
 
 def schedule_timezone_error(value: object) -> str | None:
     """Return why `value` is unusable as a schedule timezone, or None if it is fine."""

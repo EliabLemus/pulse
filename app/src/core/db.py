@@ -1434,38 +1434,16 @@ def get_user_last_standup_answers(team_id: str, user_id: str) -> dict | None:
 
 
 # Participation model (issue #74). See compute_participation for the model.
-
-DEFAULT_SCHEDULE_DAYS = "mon,tue,wed,thu,fri"
-
-_WEEKDAY_TOKENS = {
-    "mon": 0,
-    "monday": 0,
-    "tue": 1,
-    "tues": 1,
-    "tuesday": 1,
-    "wed": 2,
-    "weds": 2,
-    "wednesday": 2,
-    "thu": 3,
-    "thur": 3,
-    "thurs": 3,
-    "thursday": 3,
-    "fri": 4,
-    "friday": 4,
-    "sat": 5,
-    "saturday": 5,
-    "sun": 6,
-    "sunday": 6,
-    "0": 0,
-    "1": 1,
-    "2": 2,
-    "3": 3,
-    "4": 4,
-    "5": 5,
-    "6": 6,
-}
-
-_WORKING_WEEK = {0, 1, 2, 3, 4}
+# The day-list parser and its tokens live in schedule_validation, next to the
+# other timing-field rules; they are re-exported here for existing callers.
+from src.core.schedule_validation import (  # noqa: E402,F401
+    DEFAULT_SCHEDULE_DAYS,
+    parse_schedule_days,
+)
+from src.core.schedule_validation import WEEKDAY_TOKENS as _WEEKDAY_TOKENS  # noqa: E402,F401
+from src.core.schedule_validation import (
+    WORKING_WEEK as _WORKING_WEEK,  # noqa: F401
+)
 
 
 def _utc_now() -> datetime:
@@ -1481,38 +1459,6 @@ def _resolve_zone(name: object):
         except Exception:  # noqa: BLE001 - unknown name or missing tz database
             logger.debug("Unknown schedule timezone %r, treating it as UTC", name)
     return timezone.utc
-
-
-def parse_schedule_days(spec: object) -> set[int]:
-    """Return the weekday numbers a `schedule_days` value fires on (Monday is 0).
-
-    Accepts the shapes APScheduler's `day_of_week` accepts and this app writes:
-    "mon,wed,fri", "mon-fri", "fri-mon", "*" and bare numbers.
-    """
-    if not isinstance(spec, str) or not spec.strip():
-        spec = DEFAULT_SCHEDULE_DAYS
-    days: set[int] = set()
-    for token in spec.lower().replace(" ", "").split(","):
-        if not token:
-            continue
-        if token == "*":
-            return set(range(7))
-        if "-" in token[1:]:
-            start_txt, _, end_txt = token.partition("-")
-            start = _WEEKDAY_TOKENS.get(start_txt)
-            end = _WEEKDAY_TOKENS.get(end_txt)
-            if start is None or end is None:
-                continue
-            day = start
-            days.add(day)
-            while day != end:
-                day = (day + 1) % 7
-                days.add(day)
-            continue
-        day = _WEEKDAY_TOKENS.get(token)
-        if day is not None:
-            days.add(day)
-    return days or set(_WORKING_WEEK)
 
 
 def _schedule_minutes(schedule: dict) -> int:
