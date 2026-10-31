@@ -9,13 +9,18 @@ import os
 from src.modules.standup.comment_jobs import (
     claim_pending_comment_jobs,
     mark_comment_delivered,
+    mark_comment_retryable,
     mark_comment_unknown,
     mark_stale_guided_deliveries_unknown,
     mark_stale_processing_comments_unknown,
 )
-from src.modules.standup.compass import CompassClient
+from src.modules.standup.compass import CompassClient, CompassPreFlightError, _sleep_backoff
 
 logger = logging.getLogger(__name__)
+
+# Safe-retry budget for failures proven to happen before Compass received the
+# request (connection refused, DNS, HTTP error status without an ack).
+PRE_FLIGHT_ATTEMPTS = 3
 
 
 def run_pending_comments(api_key: str, *, limit: int = 25) -> dict[str, int]:
@@ -24,6 +29,11 @@ def run_pending_comments(api_key: str, *, limit: int = 25) -> dict[str, int]:
     Each job is posted with the submitting user's own Compass key when one is
     stored (comments are authored by the person who wrote them), and with the
     global credential otherwise, so nobody is blocked while keys are issued.
+
+    Pre-flight failures (the request provably never reached Compass) are
+    retried up to three times with exponential backoff. A post-flight
+    ambiguity (timeout after the request was sent) stays ``unknown`` and is
+    never retried, because a duplicate comment is worse than a late one.
     """
     if not api_key.startswith("cmp_"):
         raise ValueError("A Compass API key is required for the comment worker")
@@ -38,7 +48,18 @@ def run_pending_comments(api_key: str, *, limit: int = 25) -> dict[str, int]:
         job_id = int(job["id"])
         client, impersonated = _client_for(job.get("user_id"), api_key, clients)
         try:
-            client.post_comment(str(job["ticket_key"]), str(job["body"]))
+            _post_with_pre_flight_retries(client, str(job["ticket_key"]), str(job["body"]))
+        except CompassPreFlightError as exc:
+            # Compass never saw the request, so the job is still safe to
+            # hand back to the queue for a later worker run.
+            logger.warning(
+                "Compass comment job %s could not reach Compass after %s attempts: %s",
+                job_id,
+                PRE_FLIGHT_ATTEMPTS,
+                exc,
+            )
+            mark_comment_retryable(job_id, str(exc))
+            result["retryable"] = result.get("retryable", 0) + 1
         except Exception as exc:  # an ambiguous remote outcome must not be retried
             logger.warning("Compass comment job %s became unknown: %s", job_id, exc)
             mark_comment_unknown(job_id, str(exc))
@@ -49,6 +70,25 @@ def run_pending_comments(api_key: str, *, limit: int = 25) -> dict[str, int]:
             if impersonated:
                 result["impersonated"] += 1
     return result
+
+
+def _post_with_pre_flight_retries(client: CompassClient, ticket_key: str, body: str) -> None:
+    """Post one comment, retrying only failures proven pre-flight.
+
+    ``CompassPreFlightError`` means the request never reached Compass (or
+    Compass rejected it with an HTTP status without applying the tool call),
+    so nothing was written and a retry cannot duplicate the comment. Any
+    other exception propagates to the caller as an unknown outcome.
+    """
+    for attempt in range(1, PRE_FLIGHT_ATTEMPTS + 1):
+        try:
+            client.post_comment(ticket_key, body)
+            return
+        except CompassPreFlightError:
+            if attempt < PRE_FLIGHT_ATTEMPTS:
+                _sleep_backoff(attempt)
+                continue
+            raise
 
 
 def _client_for(user_id: object, global_key: str, clients: dict[str, CompassClient]):
@@ -75,9 +115,14 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=25)
     args = parser.parse_args()
     result = run_pending_comments(os.environ.get("COMPASS_API_KEY", ""), limit=args.limit)
-    print(f"delivered={result['delivered']} unknown={result['unknown']} impersonated={result['impersonated']}")
+    print(
+        f"delivered={result['delivered']} unknown={result['unknown']} "
+        f"impersonated={result['impersonated']} retryable={result.get('retryable', 0)}"
+    )
     # Hermes cron turns a real nonzero result into a user-visible failure alert.
-    return 1 if result["unknown"] else 0
+    # Retryable jobs stay pending for the next run, so they alert too: a
+    # Compass outage long enough to exhaust three attempts needs eyes.
+    return 1 if result["unknown"] or result.get("retryable") else 0
 
 
 if __name__ == "__main__":

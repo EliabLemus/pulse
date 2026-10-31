@@ -57,7 +57,9 @@ def test_step_one_no_progress_checks_are_scoped_to_their_own_ticket():
         for block in modal["blocks"]
         if str(block.get("block_id", "")).startswith("sin_avances_")
     }
-    assert set(checks) == {"sin_avances_TECH-8", "sin_avances_TECH-9"}
+    per_ticket = {c for c in checks if c != "sin_avances_resto"}
+    assert per_ticket == {"sin_avances_TECH-8", "sin_avances_TECH-9"}
+    assert "sin_avances_resto" in checks  # R4: global no-progress checkbox
     for key in ("TECH-8", "TECH-9"):
         assert checks[f"sin_avances_{key}"]["label"]["text"] == f"¿Hubo avance hoy en {key}?"
         # The visible option copy stays the approved vocabulary.

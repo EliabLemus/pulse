@@ -189,6 +189,26 @@ def mark_comment_delivered(job_id: int) -> None:
             )
 
 
+def mark_comment_retryable(job_id: int, detail: str) -> None:
+    """Return a claimed job to pending after a proven pre-flight failure.
+
+    Only called when the request provably never reached Compass, so a later
+    claim cannot duplicate the comment. Ambiguous outcomes keep going to
+    :func:`mark_comment_unknown` instead.
+    """
+    with db.db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE compass_comment_jobs
+                SET state = 'pending', claimed_at = NULL, detail = %s
+                WHERE id = %s AND state = 'processing'
+                """,
+                (detail[:500], job_id),
+            )
+    logger.warning("Compass comment job %s returned to pending: %s", job_id, detail[:500])
+
+
 def mark_comment_unknown(job_id: int, detail: str) -> None:
     """Preserve ambiguous external outcomes instead of risking a duplicate comment."""
     with db.db_conn() as conn:

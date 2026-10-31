@@ -952,6 +952,33 @@ def guided_standup_modal(
                 },
             }
         )
+        # One global mark for the common case: nothing moved on any ticket.
+        # Checking it treats every ticket left without text as sin avances, so
+        # a quiet day is one tap instead of one checkbox per ticket. A ticket
+        # with substantive text still counts as progress regardless.
+        sin_avances_resto = "sin_avances_resto" in (answers.get("sin_avances_resto") or [])
+        sin_avances_resto_option = {
+            "text": {"type": "plain_text", "text": "Sin avances en el resto de tickets"},
+            "value": "sin_avances_resto",
+        }
+        blocks.append(
+            {
+                "type": "input",
+                "block_id": "sin_avances_resto",
+                "label": {"type": "plain_text", "text": "¿Nada más que reportar?"},
+                "optional": True,
+                "element": {
+                    "type": "checkboxes",
+                    "action_id": "value",
+                    "options": [sin_avances_resto_option],
+                    **(
+                        {"initial_options": [sin_avances_resto_option]}
+                        if sin_avances_resto
+                        else {}
+                    ),
+                },
+            }
+        )
         for task in tasks:
             key = str(task.get("key") or "Ticket")
             blocks.extend(

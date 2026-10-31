@@ -6,10 +6,29 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
+
+
+class CompassPreFlightError(RuntimeError):
+    """The request never reached Compass, so nothing was applied.
+
+    Connection refused, DNS failure, and any HTTP error status returned
+    before Compass acknowledged the tool call. Retrying is always safe
+    because no write happened.
+    """
+
+
+class CompassPostFlightError(RuntimeError):
+    """The request was sent but the outcome cannot be known (e.g. timeout).
+
+    Retrying could duplicate a comment, so callers must treat this as an
+    unknown outcome and never re-send.
+    """
 
 COMPASS_WEB_BASE_URL = "https://compass.zubale.com"
 _PORTAL_TASK_URL_RE = re.compile(
@@ -49,9 +68,10 @@ def _normalise_display_text(value: str) -> str:
 class CompassClient:
     """Use Compass MCP without mutating ticket workflow fields."""
 
-    def __init__(self, api_key: str, *, timeout_seconds: int = 10) -> None:
+    def __init__(self, api_key: str, *, timeout_seconds: int = 10, connection_attempts: int = 3) -> None:
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
+        self._connection_attempts = max(1, int(connection_attempts))
         self._mcp_url = f"{COMPASS_WEB_BASE_URL}/api/v2/mcp"
 
     def _call_mcp(self, tool_name: str, arguments: dict[str, str]) -> dict[str, Any]:
@@ -68,14 +88,41 @@ class CompassClient:
             headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
             method="POST",
         )
-        with urlopen(request, timeout=self._timeout_seconds) as response:
-            payload = json.load(response)
-        if not isinstance(payload, dict) or payload.get("error"):
-            raise ValueError("Compass rejected the MCP tool call")
-        result = payload.get("result")
-        if not isinstance(result, dict):
-            raise ValueError("Compass returned an invalid MCP tool result")
-        return result
+        attempts = self._connection_attempts
+        for attempt in range(1, attempts + 1):
+            try:
+                with urlopen(request, timeout=self._timeout_seconds) as response:
+                    payload = json.load(response)
+            except HTTPError as exc:
+                # Compass answered with an HTTP error status before the tool
+                # call could be applied, so this is a pre-flight failure and a
+                # retry is safe. Protocol-level errors inside a 200 (below)
+                # are valid responses and are never retried.
+                raise CompassPreFlightError(f"Compass HTTP {exc.code} for {tool_name}") from exc
+            except URLError as exc:
+                # DNS resolution and connection refused happen before the
+                # request is sent. A read timeout after the send is a socket
+                # timeout instead, handled below.
+                if isinstance(getattr(exc, "reason", None), TimeoutError):
+                    if attempt < attempts:
+                        _sleep_backoff(attempt)
+                        continue
+                    raise CompassPostFlightError(f"Compass timeout after send for {tool_name}") from exc
+                if attempt < attempts:
+                    _sleep_backoff(attempt)
+                    continue
+                raise CompassPreFlightError(f"Compass unreachable for {tool_name}: {exc.reason}") from exc
+            except TimeoutError as exc:
+                # The request left the process but no response arrived; the
+                # tool call may have been applied, so this is ambiguous.
+                raise CompassPostFlightError(f"Compass timeout after send for {tool_name}") from exc
+            if not isinstance(payload, dict) or payload.get("error"):
+                raise ValueError("Compass rejected the MCP tool call")
+            result = payload.get("result")
+            if not isinstance(result, dict):
+                raise ValueError("Compass returned an invalid MCP tool result")
+            return result
+        raise CompassPostFlightError(f"Compass unreachable for {tool_name}")  # pragma: no cover
 
     def get_ticket(self, key: str) -> dict[str, Any]:
         """Read one ticket for submit-time status validation."""
@@ -140,6 +187,11 @@ class CompassClient:
             assignments[email] = tasks[:max_tasks_per_email]
         context.update(assignments)
         return context
+
+
+def _sleep_backoff(attempt: int) -> None:
+    """Exponential backoff between connection retries: 1s, 2s, 4s, ..."""
+    time.sleep(2 ** (attempt - 1))
 
 
 def _assignee_email(value: object) -> str:

@@ -11,6 +11,7 @@ open to an empty mapping so scheduled DM delivery is never aborted.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
 
@@ -20,7 +21,8 @@ _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 TaskList = list[dict[str, Any]]
 CompassContext = dict[str, TaskList]
-SNAPSHOT_MAX_AGE_MINUTES = 30
+# How old a snapshot may be before the guided DSU drops the ticket context.
+SNAPSHOT_MAX_AGE_MINUTES = max(1, int(os.environ.get("SNAPSHOT_MAX_AGE_MINUTES", "30")))
 
 
 class SnapshotCompassClient:

@@ -560,6 +560,56 @@ def get_fresh_compass_task_snapshots(
     }
 
 
+def compass_snapshot_freshness() -> dict[str, Any]:
+    """Oldest snapshot age per team and the teams whose snapshots are stale.
+
+    Stale is measured against the database clock with
+    ``SNAPSHOT_MAX_AGE_MINUTES`` enforced by the caller (the guided DSU drops
+    ticket context past it). Returns ``{"oldest": "team_id -> minutes", "stale_teams": [...]}``;
+    with no snapshots at all, ``{"oldest": None, "stale_teams": []}``.
+    """
+    from src.modules.standup.compass_context import SNAPSHOT_MAX_AGE_MINUTES
+
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT team_id,
+                       ROUND(EXTRACT(EPOCH FROM (NOW() - MIN(fetched_at))) / 60) AS age_minutes
+                FROM compass_task_snapshots
+                GROUP BY team_id
+                """
+            )
+            rows = cur.fetchall()
+    if not rows:
+        return {"oldest": None, "stale_teams": []}
+    by_team = {str(team): int(age) for team, age in rows if age is not None}
+    if not by_team:
+        return {"oldest": None, "stale_teams": []}
+    oldest_team = max(by_team, key=lambda team: by_team[team])
+    stale = sorted(team for team, age in by_team.items() if age >= SNAPSHOT_MAX_AGE_MINUTES)
+    return {"oldest": f"{oldest_team} -> {by_team[oldest_team]} minutes old", "stale_teams": stale}
+
+
+def stale_compass_snapshot_teams() -> list[str]:
+    """Teams whose newest snapshot is at least ``minutes`` old (database clock)."""
+    from src.modules.standup.compass_context import SNAPSHOT_MAX_AGE_MINUTES
+
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT team_id
+                FROM compass_task_snapshots
+                GROUP BY team_id
+                HAVING MAX(fetched_at) < NOW() - (%s * INTERVAL '1 minute')
+                """,
+                (SNAPSHOT_MAX_AGE_MINUTES,),
+            )
+            rows = cur.fetchall()
+    return sorted(str(row[0]) for row in rows)
+
+
 def upsert_member(
     team_id: str,
     user_id: str,

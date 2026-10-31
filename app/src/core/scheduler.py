@@ -618,6 +618,16 @@ def _send_standup_to_workspace(
     # One batched Compass read for all candidate members, before any DM goes
     # out; per-member lookups would multiply Compass calls by the team size.
     compass_tasks_by_user = _compass_task_context(team_id, members)
+    # R3: when this team's snapshots are stale, members whose context came
+    # back empty are told the DSU runs without Compass context, instead of
+    # silently getting a simpler wizard than usual.
+    snapshot_stale = False
+    try:
+        import src.core.db as db  # noqa: PLC0415
+
+        snapshot_stale = team_id in db.stale_compass_snapshot_teams()
+    except Exception as exc:
+        logger.warning("could not check snapshot freshness for %s: %s", team_id, exc)
     for member in members:
         user_id = member["user_id"]
         cache_key = f"{team_id}:{user_id}"
@@ -661,6 +671,20 @@ def _send_standup_to_workspace(
             default_questions = questions or list(DEFAULT_QUESTIONS)
             dm_msg = standup_dm_message(default_questions, standup_name)
             _slack_dm_with_retry(client, user_id, team_id=team_id, text=f"🌅 Time for {standup_name}", **dm_msg)
+
+            if snapshot_stale and not compass_tasks_by_user.get(user_id):
+                try:
+                    _slack_dm_with_retry(
+                        client,
+                        user_id,
+                        team_id=team_id,
+                        text=(
+                            "ℹ️ El snapshot de Compass está caduco: el DSU guiado seguirá "
+                            "en modo simple sin contexto Compass."
+                        ),
+                    )
+                except Exception as exc:
+                    logger.warning("could not send the stale-snapshot notice to %s: %s", user_id, exc)
 
             state_store.start(
                 cache_key,

@@ -59,6 +59,24 @@ class MemoryStateStore:
     def clear(self, cache_key: str) -> None:
         self._sessions.pop(cache_key, None)
 
+    def guided_wizard_expired(self, cache_key: str, now=None) -> bool:
+        session = self._sessions.get(cache_key)
+        if session is None or not session.compass_tasks:
+            return False
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+
+        now = now or _dt.now(_tz.utc)
+        from src.core import state as _state
+
+        return now - session.started_at >= _state.GUIDED_WIZARD_TTL
+
+    def clear_guided_wizard_if_expired(self, cache_key: str, now=None) -> bool:
+        if not self.guided_wizard_expired(cache_key, now=now):
+            return False
+        self.clear(cache_key)
+        return True
+
 
 @pytest.fixture(autouse=True)
 def isolated_handler_state(monkeypatch):

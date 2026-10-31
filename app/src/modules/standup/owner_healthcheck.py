@@ -60,6 +60,16 @@ def send_owner_health_check(client) -> bool:  # noqa: ANN001
         return False
 
 
+def send_owner_text(client, text: str) -> bool:  # noqa: ANN001
+    """DM the owner one plain operational alert. True when Slack accepted it."""
+    try:
+        client.chat_postMessage(channel=OWNER_SLACK_USER_ID, text=text)
+        return True
+    except Exception as exc:
+        logger.warning("Owner alert DM failed: %s", exc)
+        return False
+
+
 def send_scheduled_owner_check(team_id: str, bot_token: str) -> None:
     """Scheduler job body: resolve the current token, then DM the owner."""
     try:

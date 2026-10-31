@@ -99,6 +99,11 @@ def _deserialize(data: dict) -> "UserSession":
 # How long an open session for one standup holds off the DM for another.
 OTHER_STANDUP_BLOCK = timedelta(hours=4)
 
+# A guided wizard step left open this long is expired: the sprint snapshot it
+# was built from is stale, so submitting would post progress against tickets
+# that may have moved. The next wizard interaction tells the user to restart.
+GUIDED_WIZARD_TTL = timedelta(minutes=30)
+
 
 class StateStore:
     """Redis-backed store for active standup DM conversations (in-memory fallback)."""
@@ -141,6 +146,30 @@ class StateStore:
     def get(self, cache_key: str) -> Optional[UserSession]:
         data = session_store.get_session(cache_key)
         return _deserialize(data) if data else None
+
+    def guided_wizard_expired(self, cache_key: str, now: datetime | None = None) -> bool:
+        """Whether a guided wizard session has sat past GUIDED_WIZARD_TTL.
+
+        Only a session carrying Compass tasks can expire this way: it renders
+        a sprint snapshot whose tickets may have moved since it was captured.
+        A plain DM session never expires here.
+        """
+        session = self.get(cache_key)
+        if session is None or not session.compass_tasks:
+            return False
+        now = now or datetime.now(timezone.utc)
+        return now - session.started_at >= GUIDED_WIZARD_TTL
+
+    def clear_guided_wizard_if_expired(self, cache_key: str, now: datetime | None = None) -> bool:
+        """Drop an expired guided wizard and report whether that happened.
+
+        Returns True when the session was expired and removed, so the caller
+        can send the recovery message exactly once.
+        """
+        if not self.guided_wizard_expired(cache_key, now=now):
+            return False
+        self.clear(cache_key)
+        return True
 
     def record_answer(self, cache_key: str, answer: str) -> Optional[UserSession]:
         with self._lock:

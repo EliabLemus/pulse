@@ -37,6 +37,11 @@ NOT_OPERATOR_SET = {
     # TechOps-pilot-only: the owner health-check DM target, defaulted in code
     # and passed through by deploy/docker-compose.techops.yml, not the chart.
     "PULSE_HEALTHCHECK_OWNER_ID",
+    # TechOps-pilot-only Compass DSU knobs: passed through
+    # deploy/docker-compose.techops.yml, not the chart.
+    "COMPASS_USER_KEY_SECRET",
+    "SNAPSHOT_MAX_AGE_MINUTES",
+    "PULSE_RECONCILE_STATE_FILE",
     "PORT",
     "PATH",
     "HOME",

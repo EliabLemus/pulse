@@ -1171,6 +1171,12 @@ def register_handlers(app: App) -> None:
 
     register_health_check_actions(app)
 
+    # /pulse status: owner-only pipeline visibility (queues, snapshot age,
+    # last worker run), guarded exactly like the owner health-check.
+    from src.modules.standup.status import register_status_command  # noqa: PLC0415
+
+    register_status_command(app)
+
     # ----- External select: timezone search -----
     @app.options("timezone")
     def handle_timezone_options(ack, payload):  # noqa: ANN001
@@ -1447,6 +1453,16 @@ def register_handlers(app: App) -> None:
             _say_once(client, user_id, "⚠️ Your standup session expired. Run `/standup` to start a new one.")
             return
 
+        # Reopening an abandoned wizard past its TTL offers a clean restart
+        # instead of resuming against a stale sprint snapshot.
+        if state_store.clear_guided_wizard_if_expired(cache_key):
+            _say_once(
+                client,
+                user_id,
+                "⌛ Tu sesión anterior del DSU expiró. Escribe `/standup` para empezar de nuevo.",
+            )
+            return
+
         import src.modules.standup.blocks as _blocks  # noqa: PLC0415
 
         answers = dict(session.wizard_answers or {})
@@ -1494,6 +1510,15 @@ def register_handlers(app: App) -> None:
         # A session carrying open Compass tasks runs the guided wizard instead
         # of the flat form, at the step already reached.
         if session.compass_tasks:
+            # Reopening a wizard abandoned past its TTL starts over: its step
+            # renders a sprint snapshot that may no longer match Compass.
+            if state_store.clear_guided_wizard_if_expired(cache_key):
+                _say_once(
+                    client,
+                    user_id,
+                    "⌛ Tu sesión anterior del DSU expiró. Escribe `/standup` para empezar de nuevo.",
+                )
+                return
             modal = _blocks.guided_standup_modal(
                 session.standup_name or "Standup",
                 session.compass_tasks,
@@ -2235,6 +2260,18 @@ def register_handlers(app: App) -> None:
             _say_once(client, user_id, "⚠️ Your standup session expired. Run `/standup` to start a new one.")
             return
 
+        # A wizard left open past its TTL is expired, not resumed: the sprint
+        # snapshot behind its step 0 may be stale. Tell the user to restart
+        # instead of silently failing later on moved tickets.
+        if state_store.clear_guided_wizard_if_expired(cache_key):
+            ack()
+            _say_once(
+                client,
+                user_id,
+                "⌛ Tu sesión anterior del DSU expiró. Escribe `/standup` para empezar de nuevo.",
+            )
+            return
+
         import src.modules.standup.blocks as _blocks  # noqa: PLC0415
         from src.modules.standup.compass import is_substantive_ticket_text  # noqa: PLC0415
 
@@ -2250,6 +2287,16 @@ def register_handlers(app: App) -> None:
         if step == 0:
             progress: dict[str, str] = {}
             sin_avances: list[str] = []
+            # One global mark: every ticket left without text counts as
+            # "sin avances" when it is checked (R4). Substantive text on a
+            # ticket still wins, and per-ticket marks are unchanged.
+            global_resto_selected = values.get("sin_avances_resto", {}).get("value", {}).get(
+                "selected_options", []
+            )
+            sin_avances_resto = any(
+                isinstance(option, dict) and option.get("value") == "sin_avances_resto"
+                for option in global_resto_selected
+            )
             for task in session.compass_tasks:
                 key = str(task.get("key") or "")
                 if not key:
@@ -2261,7 +2308,7 @@ def register_handlers(app: App) -> None:
                 )
                 if text.strip() and is_substantive_ticket_text(text, task):
                     progress[key] = text
-                elif marked_sin_avances:
+                elif marked_sin_avances or (sin_avances_resto and not text.strip()):
                     sin_avances.append(key)
                 elif text.strip():
                     errors[f"progress_{key}"] = (
@@ -2272,6 +2319,7 @@ def register_handlers(app: App) -> None:
             if not errors:
                 answers["progress"] = progress
                 answers["sin_avances"] = sin_avances
+                answers["sin_avances_resto"] = ["sin_avances_resto"] if sin_avances_resto else []
         elif step == 1:
             focus_items, errors = _guided_focus_items(values)
             if not errors:

@@ -255,3 +255,33 @@ The `migrate` init container then applies any migration newer than the dump.
    <https://axiom.co/docs/send-data/vector>.
 3. Restrict the source to this namespace and parse the `message` field as
    JSON in a Vector `remap` transform so the fields above are queryable.
+
+
+## Reconciling unknown Compass deliveries
+
+The comment worker treats a post-send ambiguity (request sent, no ack) as
+`unknown` and never retries it — by design, to avoid duplicate ticket
+comments. Connection-level failures before the request leaves (DNS,
+connection refused) are retried three times with backoff and return to
+`pending` when exhausted.
+
+When `/pulse status` reports `unknown > 0` twice in a row, or the owner
+gets the streak alert DM:
+
+1. Run the reconciler inside the container:
+
+       python -m src.modules.standup.reconcile
+
+   It lists every non-delivered guided delivery and comment job with its
+   `detail` and timestamps, and prints the current unknown streak.
+
+2. For each `unknown` comment job, check the ticket in Compass (the key is
+   in the listing). If the comment arrived, no action is needed: the row is
+   a ledger entry, not a queue. If it never arrived, re-run the standup or
+   post the update by hand.
+
+3. `unknown` rows never retry automatically; they stay as a permanent
+   audit trail for `/pulse status` and the reconciler listing.
+
+The reconcile streak counter lives at `PULSE_RECONCILE_STATE_FILE`
+(techops compose only; defaults inside the container).
