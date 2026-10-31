@@ -994,7 +994,7 @@ def guided_standup_modal(
                         "block_id": f"sin_avances_{key}",
                         "label": {
                             "type": "plain_text",
-                            "text": "Sin avances hoy",
+                            "text": "Marca aquí si no hubo avance",
                         },
                         "optional": True,
                         "element": {

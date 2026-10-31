@@ -35,7 +35,7 @@ def test_step_one_renders_a_per_ticket_no_progress_checkbox_without_repeating_th
     no_progress = next(block for block in modal["blocks"] if block.get("block_id") == "sin_avances_TECH-8")
 
     assert progress["label"]["text"] == "¿Qué avance hubo hoy?"
-    assert no_progress["label"]["text"] == "Sin avances hoy"
+    assert no_progress["label"]["text"] == "Marca aquí si no hubo avance"
     assert no_progress["element"]["type"] == "checkboxes"
     assert no_progress["element"]["options"][0]["text"]["text"] == "Sin avances hoy"
     assert no_progress["element"]["initial_options"][0]["value"] == "sin_avances"
@@ -61,7 +61,7 @@ def test_step_one_no_progress_checks_are_scoped_to_their_own_ticket():
     assert per_ticket == {"sin_avances_TECH-8", "sin_avances_TECH-9"}
     assert "sin_avances_resto" in checks  # R4: global no-progress checkbox
     for key in ("TECH-8", "TECH-9"):
-        assert checks[f"sin_avances_{key}"]["label"]["text"] == "Sin avances hoy"
+        assert checks[f"sin_avances_{key}"]["label"]["text"] == "Marca aquí si no hubo avance"
         # The visible option copy stays the approved vocabulary.
         assert checks[f"sin_avances_{key}"]["element"]["options"][0]["text"]["text"] == "Sin avances hoy"
 
