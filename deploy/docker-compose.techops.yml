@@ -56,6 +56,7 @@ services:
       COMPASS_API_KEY: ${COMPASS_API_KEY:?missing Compass MCP API key in host Keychain}
       COMPASS_TEAM: ${COMPASS_TEAM:-techops}
       PULSE_COMPASS_WRITE_MODE: ${PULSE_COMPASS_WRITE_MODE:-}
+      PULSE_HEALTHCHECK_OWNER_ID: ${PULSE_HEALTHCHECK_OWNER_ID:-U09GE1J7HDK}
     depends_on:
       db:
         condition: service_healthy

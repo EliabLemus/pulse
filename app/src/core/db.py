@@ -2046,6 +2046,9 @@ def create_standup_schedule(team_id: str, **kwargs) -> dict:
         "nudge_missing",
         "nudge_minutes_before",
         "awaiting_invite_by",
+        "pending_reminder_times",
+        "window_end",
+        "missing_mention",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if "questions" in fields and isinstance(fields["questions"], list):
@@ -2299,6 +2302,9 @@ def update_standup_schedule(team_id: str, schedule_id: int, **kwargs) -> dict | 
         "digest_enabled",
         "nudge_missing",
         "nudge_minutes_before",
+        "pending_reminder_times",
+        "window_end",
+        "missing_mention",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:

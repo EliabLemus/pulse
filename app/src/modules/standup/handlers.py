@@ -704,6 +704,14 @@ def _complete_standup(user_id: str, session, client) -> None:
                 logger.warning("Unexpected error in _complete_standup fetching schedule config: %s", e)
 
             notify_on_report = sched_config.get("notify_on_report", True)
+            try:
+                from src.modules.standup.blockers import has_blockers  # noqa: PLC0415
+
+                missing_mention = (sched_config.get("missing_mention") or "").strip()
+                if missing_mention and has_blockers(session.questions, question_answers):
+                    formatted = f"{formatted}\n\n<@{missing_mention}> — bloqueo reportado por <@{user_id}>"
+            except Exception as e:
+                logger.warning("Unexpected error in _complete_standup checking blockers: %s", e)
             if not notify_on_report:
                 # Replace Slack mention with plain display name to avoid notifying the user
                 member_name = user_id
@@ -1156,6 +1164,12 @@ def can_edit_response(team_id: str, user_id: str, standup_id: int) -> bool:
 
 def register_handlers(app: App) -> None:
     """Register all Slack event handlers."""
+
+    # Owner health-check OK button: proves the Funnel → app round trip. Must be
+    # registered before returning so the interactive payload gets a listener.
+    from src.modules.standup.owner_healthcheck import register_health_check_actions  # noqa: PLC0415
+
+    register_health_check_actions(app)
 
     # ----- External select: timezone search -----
     @app.options("timezone")
