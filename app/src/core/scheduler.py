@@ -168,6 +168,47 @@ def _fresh_bot_token(team_id: str, fallback_token: str) -> str:
     return fallback_token
 
 
+def _slack_http_status(exc: Exception) -> int | None:
+    """HTTP status behind a Slack API exception, if there is one."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return status if isinstance(status, int) else None
+
+
+def _retry_after_seconds(exc: Exception) -> float | None:
+    """The Retry-After header Slack sent with a 429, in seconds, if present."""
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    try:
+        raw = headers.get("Retry-After") if headers else None
+    except Exception:
+        raw = None
+    if raw is None:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    return _slack_http_status(exc) == 429
+
+
+def _is_server_error(exc: Exception) -> bool:
+    status = _slack_http_status(exc)
+    return status is not None and 500 <= status < 600
+
+
+def _is_non_retryable_dm_error(exc: Exception) -> bool:
+    """True when Slack already said this DM can never succeed.
+
+    A deactivated user or a gone channel answers 403/404 every time, so
+    retrying only burns the backoff budget and delays the owner notice.
+    """
+    if _slack_http_status(exc) in (403, 404):
+        return True
+    return _slack_error_code(exc) in ("user_not_found", "channel_not_found", "user_deactivated")
+
+
 def _is_auth_error(exc: Exception) -> bool:
     """True if a Slack API exception looks like an auth/token failure."""
     msg = str(exc).lower()
@@ -307,6 +348,23 @@ def _refresh_all_tokens_job() -> None:
         logger.info("Background token refresh: refreshed %d token(s)", refreshed)
 
 
+_DM_RETRIES_CAP_SECONDS = 300
+
+
+def _alert_standup_giving_up(team_id: str, schedule_id: int | None, code: str, detail: str) -> None:
+    """One operator alert when a standup run is abandoned after all retries."""
+    try:
+        from src.core.alerts import notify  # noqa: PLC0415
+
+        notify(
+            f":rotating_light: Gave up on standup after exhausting retries\n"
+            f"team_id: {team_id}\nschedule_id: {schedule_id or '—'}\n"
+            f"slack_error: {code or 'unknown'}\n{detail}"
+        )
+    except Exception as exc:
+        logger.warning("Could not post the give-up alert for %s/%s: %s", team_id, schedule_id, exc)
+
+
 def _slack_dm_with_retry(
     client: WebClient,
     user_id: str,
@@ -315,6 +373,12 @@ def _slack_dm_with_retry(
     **msg_kwargs,
 ) -> bool:
     """Open a DM and send a message, retrying on transient failures. Returns True on success.
+
+    Retry policy, matched to what Slack actually says:
+    - 429 rate limit: wait the Retry-After header (capped) and retry.
+    - 5xx server error: retry with the usual exponential backoff.
+    - 403/404 (deactivated user, gone channel): fail at once — Slack will
+      answer the same way on every retry, so the attempts are not spent.
 
     If `team_id` is provided, a Slack auth error (expired/invalid token) triggers a single
     force-refresh of the bot token and an immediate retry with the new token.
@@ -327,6 +391,10 @@ def _slack_dm_with_retry(
             client.chat_postMessage(channel=dm_channel, **msg_kwargs)
             return True
         except Exception as exc:
+            # A DM Slack has already refused for good: surface it now so the
+            # owner notice (and the operator alert) carry the real reason.
+            if _is_non_retryable_dm_error(exc):
+                raise
             # Reactive token refresh on auth error — try once, then retry the same attempt.
             if team_id and not auth_refresh_tried and _is_auth_error(exc):
                 auth_refresh_tried = True
@@ -336,6 +404,15 @@ def _slack_dm_with_retry(
                     continue  # retry without burning an attempt
                 _alert_token_refresh_failure(team_id, str(exc))
                 raise
+            if _is_rate_limit_error(exc):
+                retry_after = _retry_after_seconds(exc)
+                if retry_after is not None:
+                    if attempt == max_retries:
+                        raise
+                    time.sleep(min(retry_after, _DM_RETRIES_CAP_SECONDS))
+                    continue
+            # Everything else that carries a 5xx status (or is a plain network
+            # error) is transient: fall through to the exponential backoff.
             if attempt == max_retries:
                 raise
             time.sleep(1.5**attempt)  # 1s, 1.5s
@@ -353,11 +430,16 @@ def _notify_delivery_failure(
     failed_count: int,
     total_count: int,
     standup_name: str = "",
+    non_retryable_codes: tuple[str, ...] = (),
 ) -> None:
     """Tell whoever installed Morgenruf, privately, that some standup DMs failed.
 
     This used to be posted in the standup channel, in front of the whole team,
     about something only an admin can look into.
+
+    `non_retryable_codes` carries the Slack error codes of the failures that
+    were permanent (deactivated user, gone channel): retrying those is
+    pointless, so the owner is told which ones need a look at Slack instead.
     """
     if failed_count == 0:
         return
@@ -367,23 +449,28 @@ def _notify_delivery_failure(
         owner = (db.get_installation(team_id) or {}).get("installed_by_user_id")
     except Exception as exc:
         logger.warning("Could not find who to tell about failed standup DMs in %s: %s", team_id, exc)
+        _alert_standup_giving_up(team_id, None, "", f"delivery-failure notice could not find an owner: {exc}")
         return
     if not owner:
         return
     name = standup_name or "the standup"
     where = f" in <#{channel_id}>" if channel_id else ""
+    text = (
+        f"⚠️ I couldn't send {name}{where} to {failed_count} of {total_count} "
+        f"{'person' if total_count == 1 else 'people'} today. "
+        "This is usually a short Slack problem and they will get the next one as normal. "
+        "If it keeps happening, check that those people are still active in Slack."
+    )
+    if non_retryable_codes:
+        codes = ", ".join(sorted(set(non_retryable_codes)))
+        text += f" Slack already refused {len(non_retryable_codes)} of them for good ({codes}) — that person is likely deactivated or unreachable, and no retry will fix it."
     try:
-        client.chat_postMessage(
-            channel=owner,
-            text=(
-                f"⚠️ I couldn't send {name}{where} to {failed_count} of {total_count} "
-                f"{'person' if total_count == 1 else 'people'} today. "
-                "This is usually a short Slack problem and they will get the next one as normal. "
-                "If it keeps happening, check that those people are still active in Slack."
-            ),
-        )
+        client.chat_postMessage(channel=owner, text=text)
     except Exception as exc:
         logger.warning("Could not tell %s about failed standup DMs: %s", owner, exc)
+        # Circular failure: the owner notice itself could not be delivered, so
+        # nobody in the workspace knows. That is worth an operator alert.
+        _alert_standup_giving_up(team_id, None, "", f"could not deliver the failed-DM notice to {owner}: {exc}")
 
 
 def standup_local_date(team_id: str, schedule_id: int | None = None, user_id: str | None = None) -> date:
@@ -534,6 +621,7 @@ def _send_standup_to_workspace(
             return
         if retry_attempt >= len(_STANDUP_RETRY_DELAYS):
             logger.error("Giving up on standup %s/%s after %s retries: %s", team_id, schedule_id, retry_attempt, exc)
+            _alert_standup_giving_up(team_id, schedule_id, code or _slack_error_code(exc), str(exc))
             return
         logger.error("Bot token check failed for team %s, will retry: %s", team_id, exc)
         _schedule_standup_retry(
@@ -615,6 +703,7 @@ def _send_standup_to_workspace(
 
     failed_count = 0
     dm_count = 0
+    non_retryable_codes: list[str] = []
     # One batched Compass read for all candidate members, before any DM goes
     # out; per-member lookups would multiply Compass calls by the team size.
     compass_tasks_by_user = _compass_task_context(team_id, members)
@@ -698,10 +787,21 @@ def _send_standup_to_workspace(
             logger.info("Sent standup DM to %s / %s", team_id, user_id)
         except Exception as exc:
             failed_count += 1
+            code = _slack_error_code(exc)
+            if _is_non_retryable_dm_error(exc) and code:
+                non_retryable_codes.append(code)
             logger.error("Failed to DM %s / %s: %s", team_id, user_id, exc)
 
     if failed_count > 0:
-        _notify_delivery_failure(client, team_id, channel_id, failed_count, dm_count, standup_name)
+        _notify_delivery_failure(
+            client,
+            team_id,
+            channel_id,
+            failed_count,
+            dm_count,
+            standup_name,
+            non_retryable_codes=tuple(non_retryable_codes),
+        )
 
 
 def participation_pct(stats: list[dict] | None) -> int:
