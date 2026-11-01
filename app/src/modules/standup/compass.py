@@ -35,13 +35,31 @@ _PORTAL_TASK_URL_RE = re.compile(
     rf"^{re.escape(COMPASS_WEB_BASE_URL)}/(?:v2/)?portal/tasks/"
     r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
 )
+_PORTAL_TASK_KEY_URL_RE = re.compile(
+    rf"^{re.escape(COMPASS_WEB_BASE_URL)}/(?:v2/)?portal/tasks/[A-Za-z][A-Za-z0-9]*-\d+$"
+)
 
 
 def portal_task_url(task: dict[str, Any]) -> str:
     """Return a verified Compass portal URL, never inventing one from a key."""
     url = task.get("url")
-    if isinstance(url, str) and _PORTAL_TASK_URL_RE.fullmatch(url):
+    if isinstance(url, str) and (
+        _PORTAL_TASK_URL_RE.fullmatch(url) or _PORTAL_TASK_KEY_URL_RE.fullmatch(url)
+    ):
         return url
+    return ""
+
+
+def portal_task_url_for_key(key: str) -> str:
+    """Build the portal URL from a ticket key (e.g. TECH-127).
+
+    The MCP snapshot does not carry per-task URLs, but the portal route
+    /portal/tasks/<KEY> is stable and owned by us. Only well-formed keys
+    are accepted so a malformed key can never produce a bogus link.
+    """
+    normalized = str(key or "").strip()
+    if _PORTAL_TASK_KEY_URL_RE.fullmatch(f"{COMPASS_WEB_BASE_URL}/portal/tasks/{normalized}"):
+        return f"{COMPASS_WEB_BASE_URL}/portal/tasks/{normalized}"
     return ""
 
 

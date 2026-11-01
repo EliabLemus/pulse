@@ -439,11 +439,36 @@ def _guided_focus_lines(tasks: list[dict], answers: dict) -> list[str]:
     return lines
 
 
+def _ticket_progress_sections(tasks: list[dict], answers: dict) -> list[dict]:
+    """One section per ticket with progress, separated by dividers in the caller."""
+    from src.modules.standup.compass import portal_task_url, portal_task_url_for_key  # noqa: PLC0415
+
+    progress = answers.get("progress") or {}
+    no_progress = set(answers.get("sin_avances") or [])
+    sections: list[dict] = []
+    for task in tasks:
+        key = str(task.get("key") or "")
+        title = str(task.get("title") or "")
+        if not key:
+            continue
+        update = str(progress.get(key) or "").strip()
+        if not update and key in no_progress:
+            update = "_Sin avances hoy_"
+        if not update:
+            continue
+        url = portal_task_url(task) or portal_task_url_for_key(key)
+        identity = f"<{url}|{key}>" if url else key
+        short_title = title if len(title) <= 60 else title[:57].rstrip() + "…"
+        heading = f"{identity}" + (f" — *{short_title}*" if short_title else "")
+        sections.append({"type": "section", "text": {"type": "mrkdwn", "text": f"{heading}\n{update}"}})
+    return sections
+
+
 def build_guided_channel_message(user_id: str, tasks: list[dict], answers: dict) -> dict[str, object]:
     """Build equivalent fallback text and Block Kit from one captured snapshot."""
 
     from src.modules.standup import blockers as _blockers  # noqa: PLC0415
-    from src.modules.standup.compass import portal_task_url  # noqa: PLC0415
+    from src.modules.standup.compass import portal_task_url, portal_task_url_for_key  # noqa: PLC0415
 
     progress = answers.get("progress") or {}
     no_progress = set(answers.get("sin_avances") or [])
@@ -457,9 +482,10 @@ def build_guided_channel_message(user_id: str, tasks: list[dict], answers: dict)
         if not update and key in no_progress:
             update = "_Sin avances hoy_"
         if update:
-            url = portal_task_url(task)
+            url = portal_task_url(task) or portal_task_url_for_key(key)
             identity = f"<{url}|{key}>" if url else key
-            heading = f"• {identity}" + (f" — *{title}*" if title else "")
+            short_title = title if len(title) <= 60 else title[:57].rstrip() + "…"
+            heading = f"• {identity}" + (f" — *{short_title}*" if short_title else "")
             lines.extend([heading, f"  {update}"])
     progress_text = "\n".join(lines[2:]).strip()
     focus_lines = _guided_focus_lines(tasks, answers)
@@ -474,10 +500,22 @@ def build_guided_channel_message(user_id: str, tasks: list[dict], answers: dict)
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": "Daily Standup"}},
         {"type": "context", "elements": [{"type": "mrkdwn", "text": context_text}]},
-        {"type": "section", "text": {"type": "mrkdwn", "text": "*Avances*\n" + progress_text}},
-        {"type": "divider"},
-        {"type": "section", "text": {"type": "mrkdwn", "text": "*Foco de hoy*\n" + "\n".join(focus_lines)}},
     ]
+    ticket_sections = _ticket_progress_sections(tasks, answers)
+    if ticket_sections:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Avances*"}})
+        for i, section in enumerate(ticket_sections):
+            if i:
+                blocks.append({"type": "divider"})
+            blocks.append(section)
+    else:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Avances*\n" + progress_text}})
+    blocks.extend(
+        [
+            {"type": "divider"},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*Foco de hoy*\n" + "\n".join(focus_lines)}},
+        ]
+    )
     if has_blockers:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Bloqueos*\n" + blockers}})
     return {"text": text, "blocks": blocks}

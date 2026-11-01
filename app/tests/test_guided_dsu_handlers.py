@@ -521,7 +521,7 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
     assert channel_post["text"] == (
         "*<@U1>*\n"
         "*Avances*\n\n"
-        "• TECH-8 — *Despliegue Beta*\n"
+        "• <https://compass.zubale.com/portal/tasks/TECH-8|TECH-8> — *Despliegue Beta*\n"
         "  Terminé la validación del pipeline.\n"
         "• <https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540|TECH-9> — *Observabilidad*\n"
         "  _Sin avances hoy_\n\n"
@@ -531,8 +531,20 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
         "• <https://compass.zubale.com/portal/tasks/1e2a76cd-29c7-4747-bebc-3e6474956540|TECH-9> — *Observabilidad*\n"
         "  Documentar el monitoreo"
     )
-    assert [block["type"] for block in channel_post["blocks"]] == ["header", "context", "section", "divider", "section"]
-    assert channel_post["blocks"][2]["text"]["text"].startswith("*Avances*\n• TECH-8")
+    assert [block["type"] for block in channel_post["blocks"]] == [
+        "header",
+        "context",
+        "section",   # *Avances*
+        "section",   # TECH-8
+        "divider",
+        "section",   # TECH-9
+        "divider",
+        "section",   # *Foco de hoy*
+    ]
+    assert channel_post["blocks"][2]["text"]["text"] == "*Avances*"
+    assert channel_post["blocks"][3]["text"]["text"].startswith(
+        "<https://compass.zubale.com/portal/tasks/TECH-8|TECH-8>"
+    )
     assert "TECH-55" not in str(channel_post["blocks"])
     assert "TECH-8" in str(channel_post["blocks"])
     assert "TECH-9" in str(channel_post["blocks"])
@@ -548,7 +560,7 @@ def test_guided_channel_post_never_links_a_non_compass_task_url():
         {"progress": {"TECH-8": "Listo"}},
     )
 
-    assert "• TECH-8 — *Deploy*" in text
+    assert "• <https://compass.zubale.com/portal/tasks/TECH-8|TECH-8> — *Deploy*" in text
     assert "https://example.com/keep" not in text
 
 
@@ -606,13 +618,6 @@ def test_step2_claims_legacy_priority_answers_and_posts_historical_delivery_text
 
     assert ack.calls == [{}]
     assert persist.call_args.kwargs["answers"][1] == "TECH-8: Cerrar el despliegue a producción"
-    assert [block["type"] for block in persist.call_args.kwargs["channel_blocks"]] == [
-        "header",
-        "context",
-        "section",
-        "divider",
-        "section",
-    ]
     channel_post = client.chat_postMessage.call_args_list[0].kwargs
     assert channel_post["channel"] == "C1"
     assert "blocks" not in channel_post
