@@ -286,6 +286,13 @@ def create_app() -> tuple[App, Flask]:
     def slack_interactions():
         return handler.handle(request)
 
+    @flask_app.route("/slack/commands", methods=["POST"])
+    def slack_commands():
+        # Slash commands use their own callback path; Bolt dispatches them the
+        # same way as events. Without this route Slack gets a 404 and surfaces
+        # "dispatch_unknown_error" to the user after its retries.
+        return handler.handle(request)
+
     @flask_app.route("/livez", methods=["GET"])
     def livez():
         # Liveness restarts the pod, so it checks only what a restart fixes: a
