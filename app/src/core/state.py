@@ -102,7 +102,10 @@ OTHER_STANDUP_BLOCK = timedelta(hours=4)
 # A guided wizard step left open this long is expired: the sprint snapshot it
 # was built from is stale, so submitting would post progress against tickets
 # that may have moved. The next wizard interaction tells the user to restart.
-GUIDED_WIZARD_TTL = timedelta(minutes=30)
+# 20 hours, not 30 minutes: a session opened at 09:15 must survive answering
+# after lunch without losing everything typed. It still expires before the
+# next day's standup fires, which is what the staleness argument is about.
+GUIDED_WIZARD_TTL = timedelta(hours=20)
 
 
 class StateStore:
