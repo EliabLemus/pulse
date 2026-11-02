@@ -63,7 +63,7 @@ def _seed(cursor: Any, env: Mapping[str, str]) -> None:
         SCHEDULE_NAME,
         "09:15",
         "America/Guatemala",
-        "mon,tue,wed,thu,fri",
+        "mon,wed,thu,fri",
         json.dumps(QUESTIONS),
         [participant_id],
         env["PULSE_CHANNEL_ID"].strip(),

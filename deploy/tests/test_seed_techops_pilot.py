@@ -54,7 +54,7 @@ def test_seed_upserts_installation_member_and_one_named_schedule_without_logging
     assert "UPDATE standup_schedules" not in rendered_sql
 
     schedule_params = cursor.execute.call_args_list[-1].args[1]
-    assert schedule_params[2:5] == ("09:15", "America/Guatemala", "mon,tue,wed,thu,fri")
+    assert schedule_params[2:5] == ("09:15", "America/Guatemala", "mon,wed,thu,fri")
     assert schedule_params[8:11] == ("09:45,10:15,10:45", "11:00", "U87654321")
     assert "xoxb-test-token" not in capsys.readouterr().out
 
