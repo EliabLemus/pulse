@@ -438,6 +438,30 @@ def test_step1_secondary_other_is_rejected_and_missing_primary_reports_both_erro
     assert "focus_items" not in session.wizard_answers
 
 
+def test_step1_secondary_unselected_is_treated_as_optional_none():
+    """Slack serializes an untouched optional static_select as null."""
+    _guided_session(wizard_step=1, wizard_answers={"progress": {"TECH-8": "avance previo"}})
+    client = MagicMock()
+    ack = AckRecorder()
+    values = {
+        "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+        "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+        "focus_secondary_ticket": {"value": {"selected_option": None}},
+        "focus_secondary_goal": {"value": {"value": None}},
+    }
+
+    registered = _registered()
+    registered[("view", "guided_standup_modal")](ack, _focus_body(values), client)
+
+    assert len(ack.calls) == 1
+    assert ack.calls[0]["response_action"] == "update"
+    assert _has_block(ack.calls[0]["view"], "blockers")
+    session = handlers.state_store.get("T1:U1")
+    assert session is not None
+    assert session.wizard_step == 2
+    assert session.wizard_answers["focus_items"] == [{"key": "TECH-8", "goal": "Cerrar el despliegue a producción"}]
+
+
 def test_step1_secondary_none_persists_only_the_primary_focus():
     _guided_session(wizard_step=1, wizard_answers={"progress": {"TECH-8": "avance previo"}})
     client = MagicMock()
@@ -534,12 +558,12 @@ def test_step2_final_submission_queues_ticket_comments_and_posts_one_root_messag
     assert [block["type"] for block in channel_post["blocks"]] == [
         "header",
         "context",
-        "section",   # *Avances*
-        "section",   # TECH-8
+        "section",  # *Avances*
+        "section",  # TECH-8
         "divider",
-        "section",   # TECH-9
+        "section",  # TECH-9
         "divider",
-        "section",   # *Foco de hoy*
+        "section",  # *Foco de hoy*
     ]
     assert channel_post["blocks"][2]["text"]["text"] == "*Avances*"
     assert channel_post["blocks"][3]["text"]["text"].startswith(

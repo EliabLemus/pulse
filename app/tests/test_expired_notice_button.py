@@ -25,8 +25,9 @@ def test_expired_notice_has_restart_button():
     assert actions, "notice must include an actions block"
     buttons = [e for e in actions[0]["elements"] if e.get("action_id") == "start_standup_now"]
     assert buttons, "notice must include a start_standup_now button"
-    # The button works without a schedule: empty value means heuristic lookup.
-    assert buttons[0].get("value") == ""
+    # Slack rejects empty button values; a non-numeric sentinel still triggers
+    # the handler's schedule heuristic lookup.
+    assert buttons[0].get("value") == "restart"
 
 
 def test_expired_notice_mentions_no_slash_command():

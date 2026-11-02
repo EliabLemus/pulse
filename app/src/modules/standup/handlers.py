@@ -385,8 +385,11 @@ def _guided_focus_items(values: dict) -> tuple[list[dict[str, str]], dict[str, s
     """Normalize the two focus controls and report Slack field errors."""
 
     def selected(block_id: str) -> str:
-        option = values.get(block_id, {}).get("value", {}).get("selected_option", {})
-        return str(option.get("value") or "")
+        option = values.get(block_id, {}).get("value", {}).get("selected_option")
+        # Slack sends `selected_option: null` when an optional static select
+        # is left untouched. Treat it as no selection instead of calling
+        # `.get()` on None and returning HTTP 500 to the modal submission.
+        return str(option.get("value") or "") if isinstance(option, dict) else ""
 
     def text(block_id: str) -> str:
         return str(values.get(block_id, {}).get("value", {}).get("value") or "").strip()
@@ -2754,7 +2757,7 @@ def _say_session_expired(client, user_id: str) -> None:
                     "action_id": "start_standup_now",
                     "text": {"type": "plain_text", "text": "🌅 Start a new standup", "emoji": True},
                     "style": "primary",
-                    "value": "",
+                    "value": "restart",
                 }
             ],
         },
