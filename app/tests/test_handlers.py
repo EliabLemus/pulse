@@ -185,6 +185,47 @@ class TestStartStandupSession:
         assert not any("already" in t.lower() for t in texts)
         assert any("standup" in t.lower() for t in texts)
 
+    def test_manual_start_loads_compass_tasks_for_guided_modal(self):
+        """`/standup` must build the same ticket-aware session as the scheduler.
+
+        Regression: the slash command omitted compass_tasks, so clicking
+        "Answer all at once" opened the legacy three-textarea modal shown in
+        production instead of the guided per-ticket flow.
+        """
+        client = MagicMock()
+        db_mock = MagicMock()
+        db_mock.get_schedule_for_user.return_value = {
+            "id": 1,
+            "channel_id": "C1",
+            "questions": ["Q1", "Q2", "Q3"],
+            "name": "Compass DSU",
+        }
+        db_mock.get_member_email.return_value = "owner@example.com"
+        db_mock.get_fresh_compass_task_snapshots.return_value = {
+            "owner@example.com": [{"key": "TECH-1", "title": "Fix the flow"}]
+        }
+
+        captured: dict = {}
+
+        def start_spy(*args, **kwargs):
+            captured.update(kwargs)
+            return state.UserSession(
+                cache_key="T1:U1",
+                team_id="T1",
+                channel="C1",
+                questions=["Q1", "Q2", "Q3"],
+                compass_tasks=kwargs.get("compass_tasks", []),
+            )
+
+        with patch_modules({"src.core.db": db_mock}):
+            with patch.object(state.state_store, "start", side_effect=start_spy):
+                with patch.object(state.state_store, "is_active", return_value=False):
+                    from src.modules.standup.handlers import _start_standup_session
+
+                    _start_standup_session("U1", "T1", client)
+
+        assert captured["compass_tasks"] == [{"key": "TECH-1", "title": "Fix the flow"}]
+
     def test_new_session_sends_starting_message(self):
         _ss_mock.has_session.return_value = False
         _ss_mock.get_session.return_value = None

@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -636,6 +637,29 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
     except Exception as e:
         logger.warning("Unexpected error in _start_standup_session loading config: %s", e)
 
+    # Manual starts (/standup and the restart button) must get the same
+    # ticket-aware session as the scheduled 09:15 DM. Previously this path
+    # omitted compass_tasks, so "Answer all at once" opened the legacy
+    # three-field modal even when fresh Compass snapshots existed.
+    compass_tasks: list[dict] = []
+    try:
+        import src.core.db as db  # noqa: PLC0415
+        from src.modules.standup.compass_context import (  # noqa: PLC0415
+            SnapshotCompassClient,
+            compass_context_for_members,
+        )
+
+        email = db.get_member_email(team_id, user_id)
+        if email:
+            context = compass_context_for_members(
+                SnapshotCompassClient(team_id),
+                [{"user_id": user_id, "email": email}],
+                team=os.environ.get("COMPASS_TEAM", ""),
+            )
+            compass_tasks = context.get(user_id, [])
+    except Exception as exc:
+        logger.warning("Could not load Compass context for manual standup %s/%s: %s", team_id, user_id, exc)
+
     session = state_store.start(
         cache_key,
         channel,
@@ -643,6 +667,7 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
         questions=questions,
         standup_name=standup_name,
         schedule_id=resolved_schedule_id,
+        compass_tasks=compass_tasks,
     )
     import src.modules.standup.blocks as _blocks  # noqa: PLC0415
 
@@ -2303,9 +2328,7 @@ def register_handlers(app: App) -> None:
             # One global mark: every ticket left without text counts as
             # "sin avances" when it is checked (R4). Substantive text on a
             # ticket still wins, and per-ticket marks are unchanged.
-            global_resto_selected = values.get("sin_avances_resto", {}).get("value", {}).get(
-                "selected_options", []
-            )
+            global_resto_selected = values.get("sin_avances_resto", {}).get("value", {}).get("selected_options", [])
             sin_avances_resto = any(
                 isinstance(option, dict) and option.get("value") == "sin_avances_resto"
                 for option in global_resto_selected
