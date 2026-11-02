@@ -1488,17 +1488,13 @@ def register_handlers(app: App) -> None:
         cache_key = view.get("private_metadata") or f"{team_id}:{user_id}"
         session = state_store.get(cache_key)
         if not session or not session.compass_tasks or session.wizard_step <= 0:
-            _say_once(client, user_id, "⚠️ Your standup session expired. Run `/standup` to start a new one.")
+            _say_session_expired(client, user_id)
             return
 
         # Reopening an abandoned wizard past its TTL offers a clean restart
         # instead of resuming against a stale sprint snapshot.
         if state_store.clear_guided_wizard_if_expired(cache_key):
-            _say_once(
-                client,
-                user_id,
-                "⌛ Tu sesión anterior del DSU expiró. Escribe `/standup` para empezar de nuevo.",
-            )
+            _say_session_expired(client, user_id)
             return
 
         import src.modules.standup.blocks as _blocks  # noqa: PLC0415
@@ -1537,10 +1533,7 @@ def register_handlers(app: App) -> None:
         cache_key = f"{team_id}:{user_id}"
         session = state_store.get(cache_key)
         if not session:
-            client.chat_postMessage(
-                channel=user_id,
-                text="⚠️ Your standup session expired. Run `/standup` to start a new one.",
-            )
+            _say_session_expired(client, user_id)
             return
 
         import src.modules.standup.blocks as _blocks  # noqa: PLC0415
@@ -1551,11 +1544,7 @@ def register_handlers(app: App) -> None:
             # Reopening a wizard abandoned past its TTL starts over: its step
             # renders a sprint snapshot that may no longer match Compass.
             if state_store.clear_guided_wizard_if_expired(cache_key):
-                _say_once(
-                    client,
-                    user_id,
-                    "⌛ Tu sesión anterior del DSU expiró. Escribe `/standup` para empezar de nuevo.",
-                )
+                _say_session_expired(client, user_id)
                 return
             modal = _blocks.guided_standup_modal(
                 session.standup_name or "Standup",
@@ -1968,10 +1957,7 @@ def register_handlers(app: App) -> None:
         cache_key = f"{team_id}:{user_id}"
         session = state_store.get(cache_key)
         if not session:
-            client.chat_postMessage(
-                channel=user_id,
-                text="⚠️ Your standup session expired. Run `/standup` to start a new one.",
-            )
+            _say_session_expired(client, user_id)
             return
 
         if step != session.step:
@@ -2021,11 +2007,7 @@ def register_handlers(app: App) -> None:
         cache_key = f"{team_id}:{user_id}"
         session = state_store.get(cache_key)
         if not session:
-            _say_once(
-                client,
-                user_id,
-                "⚠️ That standup is no longer open, so your mood was not saved. Run `/standup` to start a new one.",
-            )
+            _say_session_expired(client, user_id)
             return
 
         session = state_store.record_answer(cache_key, mood)
@@ -2255,10 +2237,7 @@ def register_handlers(app: App) -> None:
 
         session = state_store.get(cache_key)
         if not session:
-            client.chat_postMessage(
-                channel=user_id,
-                text="⚠️ Your standup session expired. Run `/standup` to start a new one.",
-            )
+            _say_session_expired(client, user_id)
             return
 
         # Collect answers from all question fields (rich_text_input)
@@ -2295,7 +2274,7 @@ def register_handlers(app: App) -> None:
         session = state_store.get(cache_key)
         if not session or not session.compass_tasks:
             ack()
-            _say_once(client, user_id, "⚠️ Your standup session expired. Run `/standup` to start a new one.")
+            _say_session_expired(client, user_id)
             return
 
         # A wizard left open past its TTL is expired, not resumed: the sprint
@@ -2303,11 +2282,7 @@ def register_handlers(app: App) -> None:
         # instead of silently failing later on moved tickets.
         if state_store.clear_guided_wizard_if_expired(cache_key):
             ack()
-            _say_once(
-                client,
-                user_id,
-                "⌛ Tu sesión anterior del DSU expiró. Escribe `/standup` para empezar de nuevo.",
-            )
+            _say_session_expired(client, user_id)
             return
 
         import src.modules.standup.blocks as _blocks  # noqa: PLC0415
@@ -2736,6 +2711,35 @@ _NO_ANSWER_RECEIVED = (
     "or send `pass` to leave it blank."
 )
 _ALREADY_ANSWERED = "That question is already answered. Carry on with the latest one below."
+
+
+def _say_session_expired(client, user_id: str) -> None:
+    """Session-expired notice with a restart button, not just a slash command.
+
+    Telling the user to run /standup made the escape hatch itself a failure
+    point: when slash dispatch broke, users were locked out with no way
+    forward. The button reuses the App Home action, which needs no slash.
+    """
+    text = "⚠️ Your standup session expired. Start a new one below."
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": "start_standup_now",
+                    "text": {"type": "plain_text", "text": "🌅 Start a new standup", "emoji": True},
+                    "style": "primary",
+                    "value": "",
+                }
+            ],
+        },
+    ]
+    try:
+        client.chat_postMessage(channel=user_id, text=text, blocks=blocks)
+    except Exception as exc:
+        logger.warning("Could not tell %s their session expired: %s", user_id, exc)
 
 
 def _say_once(client, user_id: str, text: str) -> None:  # noqa: ANN001
