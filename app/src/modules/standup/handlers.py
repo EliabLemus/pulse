@@ -471,7 +471,6 @@ def _ticket_progress_sections(tasks: list[dict], answers: dict) -> list[dict]:
 def build_guided_channel_message(user_id: str, tasks: list[dict], answers: dict) -> dict[str, object]:
     """Build equivalent fallback text and Block Kit from one captured snapshot."""
 
-    from src.modules.standup import blockers as _blockers  # noqa: PLC0415
     from src.modules.standup.compass import portal_task_url, portal_task_url_for_key  # noqa: PLC0415
 
     progress = answers.get("progress") or {}
@@ -491,9 +490,25 @@ def build_guided_channel_message(user_id: str, tasks: list[dict], answers: dict)
             short_title = title if len(title) <= 60 else title[:57].rstrip() + "…"
             heading = f"• {identity}" + (f" — *{short_title}*" if short_title else "")
             lines.extend([heading, f"  {update}"])
-    progress_text = "\n".join(lines[2:]).strip()
     focus_lines = _guided_focus_lines(tasks, answers)
     blockers = str(answers.get("blockers") or "").strip()
+    ticket_sections = _ticket_progress_sections(tasks, answers)
+    return _build_channel_message(user_id, lines[3:], focus_lines, blockers, ticket_sections=ticket_sections)
+
+
+def _build_channel_message(
+    user_id: str,
+    progress_lines: list[str],
+    focus_lines: list[str],
+    blockers: str,
+    *,
+    ticket_sections: list[dict] | None = None,
+) -> dict:
+    """Share the channel layout between guided and legacy captures."""
+    from src.modules.standup import blockers as _blockers  # noqa: PLC0415
+
+    lines = [f"*<@{user_id}>*", "*Avances*", "", *progress_lines]
+    progress_text = "\n".join(progress_lines).strip()
     if focus_lines:
         lines.extend(["", "*Foco de hoy*", *focus_lines])
     has_blockers = _blockers.reports_a_blocker(blockers)
@@ -505,7 +520,6 @@ def build_guided_channel_message(user_id: str, tasks: list[dict], answers: dict)
         {"type": "header", "text": {"type": "plain_text", "text": "Daily Standup"}},
         {"type": "context", "elements": [{"type": "mrkdwn", "text": context_text}]},
     ]
-    ticket_sections = _ticket_progress_sections(tasks, answers)
     if ticket_sections:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Avances*"}})
         for i, section in enumerate(ticket_sections):
@@ -751,7 +765,22 @@ def _complete_standup(user_id: str, session, client) -> None:
         ],
     )
 
-    formatted = _format_standup(user_id, question_answers, mood=mood, questions=session.questions)
+    channel_message = None
+    if not getattr(session, "compass_tasks", []):
+        from src.modules.standup.blocks import linkify_compass_tasks  # noqa: PLC0415
+
+        linked_answers = [linkify_compass_tasks(answer) for answer in question_answers]
+        channel_message = _build_channel_message(
+            user_id,
+            linked_answers[:1],
+            linked_answers[1:2],
+            linked_answers[2] if len(linked_answers) > 2 else "",
+        )
+    formatted = (
+        str(channel_message["text"])
+        if channel_message
+        else _format_standup(user_id, question_answers, mood=mood, questions=session.questions)
+    )
     channel = session.channel
     if channel:
         try:
@@ -789,12 +818,20 @@ def _complete_standup(user_id: str, session, client) -> None:
                 except Exception as e:
                     logger.warning("Unexpected error in _complete_standup resolving member name: %s", e)
                 formatted = formatted.replace(f"<@{user_id}>", member_name)
+                if channel_message:
+                    for block in channel_message["blocks"]:
+                        if block["type"] == "context":
+                            for element in block["elements"]:
+                                element["text"] = element["text"].replace(f"<@{user_id}>", member_name)
+                        elif block["type"] == "section":
+                            block["text"]["text"] = block["text"]["text"].replace(f"<@{user_id}>", member_name)
 
             try:
                 from src.modules.standup.autolink import autolink  # noqa: PLC0415
 
                 cfg = _db.get_workspace_config(session.team_id) or {}
-                formatted = autolink(formatted, cfg)
+                if not channel_message:
+                    formatted = autolink(formatted, cfg)
             except Exception as e:
                 logger.warning("Unexpected error in _complete_standup applying autolink: %s", e)
 
@@ -821,12 +858,16 @@ def _complete_standup(user_id: str, session, client) -> None:
             # Mark edits so teammates can tell which message is the latest version;
             # we don't have the original reply's ts to update in place, so post
             # the updated version as a new thread reply with a clear indicator.
-            channel_text = f"✏️ *Updated standup*\n{formatted}" if is_edit else formatted
+            edit_label = "Avance editado" if channel_message else "Updated standup"
+            channel_text = f"✏️ *{edit_label}*\n{formatted}" if is_edit else formatted
+            if is_edit and channel_message:
+                channel_message["blocks"][1]["elements"][0]["text"] += " · ✏️ Avance editado"
             client.chat_postMessage(
                 channel=channel,
                 text=channel_text,
                 thread_ts=parent_ts,
                 unfurl_links=False,
+                **({"blocks": channel_message["blocks"], "unfurl_media": False} if channel_message else {}),
             )
             logger.info(
                 "Posted %s for %s to %s (thread)",

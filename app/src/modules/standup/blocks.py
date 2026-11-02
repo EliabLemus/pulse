@@ -6,8 +6,9 @@ import re
 from datetime import datetime, timezone
 
 from src.core.schedule_validation import DEFAULT_QUESTIONS
+from src.modules.standup.autolink import _JIRA_RE
 from src.modules.standup.blockers import is_blocker_question, reports_a_blocker
-from src.modules.standup.compass import portal_task_url
+from src.modules.standup.compass import COMPASS_WEB_BASE_URL, portal_task_url
 from src.modules.standup.quickstart import OPEN_ACTION as QUICKSTART_ACTION
 
 # ---------------------------------------------------------------------------
@@ -2022,6 +2023,26 @@ def away_confirmation_message(until: str = "tomorrow") -> dict:
 # ---------------------------------------------------------------------------
 # Issue auto-linking
 # ---------------------------------------------------------------------------
+
+
+def linkify_compass_tasks(text: str) -> str:
+    """Link valid ticket references in newly captured legacy answers."""
+
+    def link_token(match: re.Match) -> str:
+        token = match[0]
+        key = token
+        suffix = ""
+        if token.startswith(("<", "https://", "http://")):
+            url = token[1:-1].split("|", 1)[0] if token.startswith("<") else token
+            url = url.rstrip(".,;:!?)]}")
+            portal = re.fullmatch(rf"{re.escape(COMPASS_WEB_BASE_URL)}/(?:requests|portal/tasks)/([\w-]+)", url)
+            if not portal:
+                return token
+            key = portal[1]
+            suffix = "" if token.startswith("<") else token[len(url) :]
+        return f"<{COMPASS_WEB_BASE_URL}/portal/tasks/{key}|{key}>{suffix}" if _JIRA_RE.fullmatch(key) else token
+
+    return re.sub(r"<[^>]*>|https?://[^\s<>]+|[\w-]+", link_token, text)
 
 
 def linkify_issues(text: str, jira_base_url: str = "", zendesk_base_url: str = "") -> str:
