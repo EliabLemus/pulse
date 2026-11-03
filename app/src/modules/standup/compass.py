@@ -30,6 +30,7 @@ class CompassPostFlightError(RuntimeError):
     unknown outcome and never re-send.
     """
 
+
 COMPASS_WEB_BASE_URL = "https://compass.zubale.com"
 _PORTAL_TASK_URL_RE = re.compile(
     rf"^{re.escape(COMPASS_WEB_BASE_URL)}/(?:v2/)?portal/tasks/"
@@ -43,9 +44,7 @@ _PORTAL_TASK_KEY_URL_RE = re.compile(
 def portal_task_url(task: dict[str, Any]) -> str:
     """Return a verified Compass portal URL, never inventing one from a key."""
     url = task.get("url")
-    if isinstance(url, str) and (
-        _PORTAL_TASK_URL_RE.fullmatch(url) or _PORTAL_TASK_KEY_URL_RE.fullmatch(url)
-    ):
+    if isinstance(url, str) and (_PORTAL_TASK_URL_RE.fullmatch(url) or _PORTAL_TASK_KEY_URL_RE.fullmatch(url)):
         return url
     return ""
 

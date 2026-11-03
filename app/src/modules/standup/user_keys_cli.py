@@ -48,9 +48,7 @@ def _list() -> int:
 
     with db.db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT user_id, added_at, active FROM compass_user_api_keys ORDER BY user_id"
-            )
+            cur.execute("SELECT user_id, added_at, active FROM compass_user_api_keys ORDER BY user_id")
             rows = cur.fetchall()
     for user_id, added_at, active in rows:
         print(f"{user_id}  added={added_at}  active={active}")

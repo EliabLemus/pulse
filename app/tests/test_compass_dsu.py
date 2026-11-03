@@ -243,13 +243,8 @@ def test_state_store_start_accepts_compass_tasks(monkeypatch):
 def test_portal_task_url_for_key_builds_link_for_well_formed_keys():
     from src.modules.standup.compass import portal_task_url_for_key
 
-    assert (
-        portal_task_url_for_key("TECH-127")
-        == "https://compass.zubale.com/portal/tasks/TECH-127"
-    )
-    assert portal_task_url_for_key("  TECH-1  ") == (
-        "https://compass.zubale.com/portal/tasks/TECH-1"
-    )
+    assert portal_task_url_for_key("TECH-127") == "https://compass.zubale.com/portal/tasks/TECH-127"
+    assert portal_task_url_for_key("  TECH-1  ") == ("https://compass.zubale.com/portal/tasks/TECH-1")
 
 
 def test_portal_task_url_for_key_rejects_malformed_keys():

@@ -70,12 +70,7 @@ def collect_open_queue_rows(*, limit: int = 100) -> dict[str, list[dict[str, Any
 
 def unknown_consecutive_runs(report: dict[str, list[dict[str, Any]]]) -> int:
     """Track how many consecutive runs saw unknown rows; 0 resets the streak."""
-    unknown = sum(
-        1
-        for rows in report.values()
-        for row in rows
-        if row.get("state") == "unknown"
-    )
+    unknown = sum(1 for rows in report.values() for row in rows if row.get("state") == "unknown")
     streak = _load_streak()
     streak = streak + 1 if unknown else 0
     _save_streak(streak)
@@ -113,8 +108,7 @@ def format_report(report: dict[str, list[dict[str, Any]]]) -> str:
             subject = row.get("ticket_key") or row.get("user_id") or ""
             lines.append(
                 f"  #{identity} [{row.get('state')}] {subject} created={created} "
-                f"claimed={claimed} delivered={delivered}"
-                + (f" detail={detail}" if detail else "")
+                f"claimed={claimed} delivered={delivered}" + (f" detail={detail}" if detail else "")
             )
     return "\n".join(lines) if lines else "All queues clear."
 
@@ -125,9 +119,7 @@ def _fmt_ts(value: object) -> str:
 
 def alert_owner_if_persistent_unknown(report: dict[str, list[dict[str, Any]]]) -> bool:
     """DM the owner when unknown rows persisted for UNKNOWN_ALERT_RUNS runs."""
-    unknown_rows = [
-        row for rows in report.values() for row in rows if row.get("state") == "unknown"
-    ]
+    unknown_rows = [row for rows in report.values() for row in rows if row.get("state") == "unknown"]
     if not unknown_rows:
         return False
     summary = "\n".join(

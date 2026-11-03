@@ -141,7 +141,9 @@ def test_worker_impersonates_user_with_own_key(monkeypatch):
     monkeypatch.setattr(comment_worker, "mark_stale_guided_deliveries_unknown", lambda: 0)
     monkeypatch.setattr(comment_worker, "mark_comment_delivered", MagicMock())
     monkeypatch.setattr(comment_worker, "mark_comment_unknown", MagicMock())
-    monkeypatch.setattr(comment_worker, "CompassClient", lambda api_key: MagicMock() if api_key == "cmp_global" else user_client)
+    monkeypatch.setattr(
+        comment_worker, "CompassClient", lambda api_key: MagicMock() if api_key == "cmp_global" else user_client
+    )
 
     import src.modules.standup.user_keys as user_keys
 
@@ -190,7 +192,9 @@ def test_worker_marks_failed_user_key_post_unknown_without_retry(monkeypatch):
     monkeypatch.setattr(comment_worker, "mark_stale_guided_deliveries_unknown", lambda: 0)
     monkeypatch.setattr(comment_worker, "mark_comment_delivered", MagicMock())
     monkeypatch.setattr(comment_worker, "mark_comment_unknown", mark_unknown)
-    monkeypatch.setattr(comment_worker, "CompassClient", lambda api_key: MagicMock() if api_key == "cmp_global" else user_client)
+    monkeypatch.setattr(
+        comment_worker, "CompassClient", lambda api_key: MagicMock() if api_key == "cmp_global" else user_client
+    )
 
     import src.modules.standup.user_keys as user_keys
 

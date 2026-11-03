@@ -1021,11 +1021,7 @@ def guided_standup_modal(
                     "type": "checkboxes",
                     "action_id": "value",
                     "options": [sin_avances_resto_option],
-                    **(
-                        {"initial_options": [sin_avances_resto_option]}
-                        if sin_avances_resto
-                        else {}
-                    ),
+                    **({"initial_options": [sin_avances_resto_option]} if sin_avances_resto else {}),
                 },
             }
         )

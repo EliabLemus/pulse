@@ -24,13 +24,9 @@ def queue_state_counts() -> dict[str, dict[str, int]]:
     """Count comment jobs and guided deliveries per state, oldest info included."""
     with db.db_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT state, COUNT(*) FROM compass_comment_jobs GROUP BY state"
-            )
+            cur.execute("SELECT state, COUNT(*) FROM compass_comment_jobs GROUP BY state")
             comments = {str(state): int(count) for state, count in cur.fetchall()}
-            cur.execute(
-                "SELECT state, COUNT(*) FROM guided_standup_deliveries GROUP BY state"
-            )
+            cur.execute("SELECT state, COUNT(*) FROM guided_standup_deliveries GROUP BY state")
             deliveries = {str(state): int(count) for state, count in cur.fetchall()}
     return {
         "compass_comment_jobs": {state: comments.get(state, 0) for state in _COMMENT_STATES},
@@ -76,12 +72,8 @@ def status_text() -> str:
     """The full /pulse status message body."""
     try:
         counts = queue_state_counts()
-        comment_line = ", ".join(
-            f"{state}={count}" for state, count in counts["compass_comment_jobs"].items()
-        )
-        delivery_line = ", ".join(
-            f"{state}={count}" for state, count in counts["guided_standup_deliveries"].items()
-        )
+        comment_line = ", ".join(f"{state}={count}" for state, count in counts["compass_comment_jobs"].items())
+        delivery_line = ", ".join(f"{state}={count}" for state, count in counts["guided_standup_deliveries"].items())
     except Exception as exc:
         logger.warning("Could not read queue counts for /pulse status: %s", exc)
         comment_line = delivery_line = "unavailable"
