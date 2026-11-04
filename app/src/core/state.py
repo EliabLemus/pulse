@@ -22,6 +22,26 @@ QUESTIONS = [
 ]
 
 
+# ---------------------------------------------------------------- Compass context state
+#
+# Pure classifier, no feature-module imports: core owns the vocabulary so both
+# the scheduler and the standup handlers can derive a session's rendering
+# state without core depending on src.modules.*.
+
+
+def context_state(tasks: list, *, unavailable: bool = False) -> str:
+    """Map a Compass context read onto the session's explicit rendering state.
+
+    Exactly one of three values: ``fresh_with_tasks`` (snapshot available and
+    non-empty), ``fresh_empty`` (snapshot available, zero tasks) or
+    ``unavailable`` (missing, stale or failed read). Explicit unavailability
+    wins over any task list so a stale snapshot never renders tickets.
+    """
+    if unavailable:
+        return "unavailable"
+    return "fresh_with_tasks" if tasks else "fresh_empty"
+
+
 @dataclass
 class UserSession:
     cache_key: str  # "team_id:user_id"
@@ -36,6 +56,11 @@ class UserSession:
     editing_standup_id: Optional[int] = None  # set when user is editing an existing submission
     edit_initial_answers: list[str] = field(default_factory=list)  # pre-fill text for each question
     compass_tasks: list[dict] = field(default_factory=list)  # open tasks rendered in the guided DSU
+    # Explicit Compass context health at session start. The dataclass default
+    # is the empty sentinel so directly-constructed old/test sessions (no
+    # explicit state) keep the legacy rendering path; _deserialize and
+    # StateStore.start map real/legacy payloads onto an explicit value.
+    compass_context_state: str = ""
     wizard_step: int = 0  # 0=progress, 1=priority, 2=blockers
     wizard_answers: dict = field(default_factory=dict)  # partial values retained across modal navigation
     guided_submission_id: Optional[int] = None  # durable root delivery pending during finalisation
@@ -58,6 +83,7 @@ def _serialize(session: "UserSession") -> dict:
         "editing_standup_id": session.editing_standup_id,
         "edit_initial_answers": session.edit_initial_answers,
         "compass_tasks": session.compass_tasks,
+        "compass_context_state": session.compass_context_state,
         "wizard_step": session.wizard_step,
         "wizard_answers": session.wizard_answers,
         "guided_submission_id": session.guided_submission_id,
@@ -89,6 +115,7 @@ def _deserialize(data: dict) -> "UserSession":
         editing_standup_id=data.get("editing_standup_id"),
         edit_initial_answers=data.get("edit_initial_answers") or [],
         compass_tasks=data.get("compass_tasks") or [],
+        compass_context_state=data.get("compass_context_state", "unavailable"),
         wizard_step=data.get("wizard_step", 0),
         wizard_answers=data.get("wizard_answers") or {},
         guided_submission_id=data.get("guided_submission_id"),
@@ -126,6 +153,7 @@ class StateStore:
         editing_standup_id: Optional[int] = None,
         edit_initial_answers: Optional[list[str]] = None,
         compass_tasks: Optional[list[dict]] = None,
+        compass_context_state: str = "unavailable",
     ) -> UserSession:
         """Begin a new standup session. cache_key should be 'team_id:user_id'."""
         if not team_id:
@@ -142,6 +170,7 @@ class StateStore:
                 editing_standup_id=editing_standup_id,
                 edit_initial_answers=list(edit_initial_answers) if edit_initial_answers else [],
                 compass_tasks=[dict(task) for task in compass_tasks] if compass_tasks else [],
+                compass_context_state=compass_context_state or "unavailable",
             )
             session_store.set_session(cache_key, _serialize(session))
             return session
