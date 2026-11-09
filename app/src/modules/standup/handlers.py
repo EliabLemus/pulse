@@ -668,6 +668,25 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
 
         email = db.get_member_email(team_id, user_id)
         if email:
+            if os.environ.get("COMPASS_SYNC_REFRESH", "") != "0" and os.environ.get("COMPASS_API_KEY"):
+                from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+                from src.modules.standup.context_worker import refresh_snapshots_now  # noqa: PLC0415
+
+                executor = ThreadPoolExecutor(max_workers=1)
+                try:
+                    future = executor.submit(refresh_snapshots_now, team_id)
+                    try:
+                        future.result(timeout=10)
+                    except TimeoutError:
+                        logger.warning(
+                            "Synchronous Compass refresh timed out after 10s for %s; using existing snapshot",
+                            team_id,
+                        )
+                    except Exception as refresh_exc:
+                        logger.warning("Synchronous Compass refresh failed for %s: %s", team_id, refresh_exc)
+                finally:
+                    executor.shutdown(wait=False)
             context = compass_context_for_members(
                 SnapshotCompassClient(team_id),
                 [{"user_id": user_id, "email": email}],
