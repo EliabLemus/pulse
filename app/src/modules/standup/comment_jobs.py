@@ -75,6 +75,91 @@ def save_guided_submission(
     return standup_id
 
 
+def get_guided_delivery(standup_id: int) -> dict[str, Any] | None:
+    """Whether a standup was filed through the guided flow (any delivery state)."""
+    with db.db_conn() as conn:
+        with conn.cursor(cursor_factory=db.psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT standup_id, team_id, user_id, schedule_id, standup_date,
+                       channel_id, channel_text, channel_blocks, state, message_ts
+                FROM guided_standup_deliveries
+                WHERE standup_id = %s
+                ORDER BY id
+                LIMIT 1
+                """,
+                (standup_id,),
+            )
+            row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def update_guided_submission(
+    *,
+    standup_id: int,
+    answers: list[str],
+    channel_text: str,
+    channel_blocks: list[dict[str, Any]],
+    comments: list[dict[str, str]],
+) -> bool:
+    """Update an existing guided standup in place for an in-window edit.
+
+    Rewrites the standup row fields, refreshes the stored channel summary, and
+    re-arms the root delivery so the updated summary is posted exactly like the
+    original (the legacy edit path also re-posts the summary). Only the ticket
+    comments whose text changed get fresh queue jobs: pending jobs for a changed
+    ticket are replaced so the worker never posts the stale text, and unchanged
+    tickets keep whatever state their job already has. Returns True when the
+    delivery was re-armed and may be posted again.
+    """
+    yesterday, today, blocker_text = (answers + ["", "", ""])[:3]
+    has_blockers = blockers.reports_a_blocker(blocker_text)
+    re_armed = False
+    with db.db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE standups
+                SET yesterday = %s, today = %s, blockers = %s, has_blockers = %s
+                WHERE id = %s
+                """,
+                (yesterday, today, blocker_text, has_blockers, standup_id),
+            )
+            cur.execute(
+                """
+                UPDATE guided_standup_deliveries
+                SET channel_text = %s, channel_blocks = %s,
+                    state = 'pending', claimed_at = NULL
+                WHERE standup_id = %s AND state IN ('pending', 'delivered')
+                """,
+                (channel_text, db.psycopg2.extras.Json(channel_blocks), standup_id),
+            )
+            re_armed = cur.rowcount > 0
+            for comment in comments:
+                cur.execute(
+                    """
+                    DELETE FROM compass_comment_jobs
+                    WHERE standup_id = %s AND ticket_key = %s AND state = 'pending'
+                    """,
+                    (standup_id, comment["ticket_key"]),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO compass_comment_jobs (standup_id, team_id, user_id, ticket_key, body)
+                    SELECT standup_id, team_id, user_id, %s, %s
+                    FROM guided_standup_deliveries WHERE standup_id = %s LIMIT 1
+                    """,
+                    (comment["ticket_key"], comment["body"], standup_id),
+                )
+    logger.info(
+        "Updated guided submission %s with %s changed comments (delivery re-armed: %s)",
+        standup_id,
+        len(comments),
+        re_armed,
+    )
+    return re_armed
+
+
 def claim_guided_delivery(standup_id: int) -> dict[str, Any] | None:
     """Claim a root post once; processing and unknown states are never replayed."""
     with db.db_conn() as conn:
