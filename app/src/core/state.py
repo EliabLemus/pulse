@@ -39,6 +39,8 @@ class UserSession:
     wizard_step: int = 0  # 0=progress, 1=priority, 2=blockers
     wizard_answers: dict = field(default_factory=dict)  # partial values retained across modal navigation
     guided_submission_id: Optional[int] = None  # durable root delivery pending during finalisation
+    guided_edit: bool = False  # True when the wizard reopens an existing guided submission
+    guided_answers: list[dict] = field(default_factory=list)  # per-ticket snapshot for change detection
 
     @property
     def user_id(self) -> str:
@@ -61,6 +63,8 @@ def _serialize(session: "UserSession") -> dict:
         "wizard_step": session.wizard_step,
         "wizard_answers": session.wizard_answers,
         "guided_submission_id": session.guided_submission_id,
+        "guided_edit": session.guided_edit,
+        "guided_answers": session.guided_answers,
         "started_at": session.started_at.isoformat(),
     }
 
@@ -92,6 +96,8 @@ def _deserialize(data: dict) -> "UserSession":
         wizard_step=data.get("wizard_step", 0),
         wizard_answers=data.get("wizard_answers") or {},
         guided_submission_id=data.get("guided_submission_id"),
+        guided_edit=bool(data.get("guided_edit", False)),
+        guided_answers=data.get("guided_answers") or [],
         started_at=_parse_started_at(data.get("started_at")),
     )
 

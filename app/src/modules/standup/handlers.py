@@ -368,6 +368,113 @@ def mark_guided_delivery_unknown(standup_id: int, detail: str) -> None:
     _mark(standup_id, detail)
 
 
+def _open_guided_edit_session(*, team_id: str, user_id: str, standup_id: int, trigger_id: str | None, client) -> bool:  # noqa: ANN001
+    """Reopen the guided wizard pre-filled for an in-window edit.
+
+    A live session that still carries this submission's per-ticket answers is
+    preferred; otherwise the stored standup fields are parsed back into the
+    per-ticket shape (guided_edit.rebuild_guided_edit). Returns False when the
+    wizard could not be rebuilt.
+    """
+    import src.modules.standup.blocks as _blocks  # noqa: PLC0415
+    from src.modules.standup.guided_edit import rebuild_guided_edit  # noqa: PLC0415
+
+    cache_key = f"{team_id}:{user_id}"
+    live = state_store.get(cache_key)
+    if (
+        live is not None
+        and getattr(live, "guided_edit", False)
+        and live.guided_submission_id == standup_id
+        and live.compass_tasks
+    ):
+        compass_tasks = live.compass_tasks
+        wizard_answers = dict(live.wizard_answers or {})
+        entries = list(live.guided_answers or [])
+        channel = live.channel
+        schedule_id = live.schedule_id
+        standup_name = live.standup_name or "Standup"
+    else:
+        try:
+            import src.core.db as db  # noqa: PLC0415
+
+            prev = db.get_standup_by_id(standup_id)
+            if not prev:
+                _say_once(client, user_id, "⚠️ I couldn't find that standup. Please try again.")
+                return False
+            snapshot_tasks: list[dict] = []
+            try:
+                from src.modules.standup.compass_context import (  # noqa: PLC0415
+                    SnapshotCompassClient,
+                    compass_context_for_members,
+                )
+
+                email = db.get_member_email(team_id, user_id)
+                if email:
+                    context = compass_context_for_members(
+                        SnapshotCompassClient(team_id),
+                        [{"user_id": user_id, "email": email}],
+                        team=os.environ.get("COMPASS_TEAM", ""),
+                    )
+                    snapshot_tasks = context.get(user_id, [])
+            except Exception as exc:
+                logger.warning("Guided edit %s could not load Compass snapshot: %s", standup_id, exc)
+
+            rebuilt = rebuild_guided_edit(prev, snapshot_tasks)
+            if rebuilt is None:
+                return False
+            compass_tasks = rebuilt["compass_tasks"]
+            wizard_answers = rebuilt["wizard_answers"]
+            entries = rebuilt["entries"]
+            try:
+                delivery = _get_guided_delivery_row(standup_id) or {}
+                channel = delivery.get("channel_id") or ""
+            except Exception:
+                channel = ""
+            schedule_id = prev.get("schedule_id")
+            standup_name = "Standup"
+        except Exception as exc:
+            logger.warning("Guided edit could not rebuild standup %s: %s", standup_id, exc)
+            return False
+
+    session = state_store.start(
+        cache_key,
+        channel or "",
+        team_id=team_id,
+        standup_name=standup_name,
+        schedule_id=schedule_id,
+        compass_tasks=compass_tasks,
+    )
+    session.wizard_step = 0
+    session.wizard_answers = wizard_answers
+    session.guided_submission_id = standup_id
+    session.guided_edit = True
+    session.guided_answers = entries
+    state_store.save(session)
+
+    if trigger_id:
+        modal = _blocks.guided_standup_modal(standup_name, compass_tasks, step=0, answers=wizard_answers)
+        modal["private_metadata"] = cache_key
+        client.views_open(trigger_id=trigger_id, view=modal)
+    _say_once(client, user_id, "✏️ Vamos a actualizar tu avance por ticket: cambia solo lo que necesites.")
+    return True
+
+
+def _get_guided_delivery_row(standup_id: int) -> dict | None:
+    """Whether a standup was filed through the guided flow (any delivery state)."""
+    from src.modules.standup.comment_jobs import get_guided_delivery  # noqa: PLC0415
+
+    return get_guided_delivery(standup_id)
+
+
+def _is_guided_submission(standup_id: int) -> bool:
+    """A standup with a guided delivery row must never open the legacy editor."""
+    try:
+        return _get_guided_delivery_row(standup_id) is not None
+    except Exception as exc:
+        logger.warning("Could not check guided delivery for standup %s: %s", standup_id, exc)
+        return False
+
+
 def _guided_comment_author_name(client, user_id: str) -> str:
     """Resolve the contributor name without letting a Slack lookup block delivery."""
     try:
@@ -2471,7 +2578,36 @@ def register_handlers(app: App) -> None:
         channel_text = str(channel_message["text"])
         channel_blocks = list(channel_message["blocks"])
         standup_id = session.guided_submission_id
-        if standup_id is None:
+        editing_guided = bool(getattr(session, "guided_edit", False)) and isinstance(standup_id, int)
+        if editing_guided:
+            # An in-window edit updates the existing row in place and re-arms
+            # its root delivery only for a repost of the refreshed summary.
+            edit_standup_id = int(standup_id)
+            if not can_edit_response(team_id, user_id, edit_standup_id):
+                ack()
+                _say_once(client, user_id, "⏰ " + edit_closed_text(team_id))
+                return
+            from src.modules.standup.comment_jobs import update_guided_submission  # noqa: PLC0415
+            from src.modules.standup.guided_edit import changed_guided_comments  # noqa: PLC0415
+
+            changed = changed_guided_comments(session.guided_answers or [], comments)
+            re_armed = update_guided_submission(
+                standup_id=edit_standup_id,
+                answers=question_answers,
+                channel_text=channel_text,
+                channel_blocks=channel_blocks,
+                comments=changed,
+            )
+            if not re_armed:
+                state_store.clear(cache_key)
+                _say_once(
+                    client,
+                    user_id,
+                    "✅ Avance actualizado. El envío anterior quedó en revisión, así que no se duplicó el mensaje en el canal.",
+                )
+                return
+            standup_id = edit_standup_id
+        elif standup_id is None:
             standup_id = _persist_guided_submission(
                 session=session,
                 user_id=user_id,
@@ -2512,7 +2648,58 @@ def register_handlers(app: App) -> None:
         message_ts = response.get("ts") if isinstance(response, dict) else None
         mark_guided_delivery_delivered(standup_id, message_ts)
         state_store.clear(cache_key)
-        client.chat_postMessage(channel=user_id, text="✅ Avance enviado.")
+        confirmation_text = "✅ Avance actualizado." if editing_guided else "✅ Avance enviado."
+        if can_edit_response(team_id, user_id, standup_id):
+            client.chat_postMessage(
+                channel=user_id,
+                text=confirmation_text,
+                blocks=[
+                    {"type": "section", "text": {"type": "mrkdwn", "text": confirmation_text}},
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "✏️ Editar avance", "emoji": True},
+                                "action_id": "guided_edit",
+                                "value": str(standup_id),
+                            }
+                        ],
+                    },
+                ],
+            )
+        else:
+            client.chat_postMessage(channel=user_id, text=confirmation_text)
+
+    @app.action("guided_edit")
+    def handle_guided_edit(ack, body, client):  # noqa: ANN001
+        """Handle '✏️ Editar avance' on the guided confirmation DM.
+
+        The edit window is re-checked here at click time, not only when the
+        button was rendered: the gate in the handler is the one that counts.
+        """
+        ack()
+        user_id: str = body["user"]["id"]
+        team_id: str = body.get("team", {}).get("id", "") or body["user"].get("team_id", "")
+        standup_id_str: str = body.get("actions", [{}])[0].get("value", "")
+
+        try:
+            standup_id = int(standup_id_str)
+        except (ValueError, TypeError):
+            _say_once(client, user_id, "⚠️ I couldn't find that standup. Please try again.")
+            return
+
+        if not can_edit_response(team_id, user_id, standup_id):
+            _say_once(client, user_id, "⏰ " + edit_closed_text(team_id))
+            return
+
+        _open_guided_edit_session(
+            team_id=team_id,
+            user_id=user_id,
+            standup_id=standup_id,
+            trigger_id=body.get("trigger_id"),
+            client=client,
+        )
 
     @app.action("standup_edit")
     def handle_standup_edit(ack, body, say, client):  # noqa: ANN001
@@ -2534,6 +2721,24 @@ def register_handlers(app: App) -> None:
 
         if not can_edit_response(team_id, user_id, standup_id):
             _say_once(client, user_id, "⏰ " + edit_closed_text(team_id))
+            return
+
+        # A guided submission carries per-ticket answers; the legacy
+        # three-question editor would destroy that format. Redirect to the
+        # guided wizard pre-filled instead.
+        if _is_guided_submission(standup_id):
+            if not _open_guided_edit_session(
+                team_id=team_id,
+                user_id=user_id,
+                standup_id=standup_id,
+                trigger_id=body.get("trigger_id"),
+                client=client,
+            ):
+                _say_once(
+                    client,
+                    user_id,
+                    "⚠️ No pude reconstruir tu avance por ticket. Tu envío sigue intacto; inténtalo más tarde.",
+                )
             return
 
         cache_key = f"{team_id}:{user_id}"
