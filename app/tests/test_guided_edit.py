@@ -9,7 +9,6 @@ from src.core.state import UserSession
 from src.modules.standup import comment_jobs, handlers
 from src.modules.standup.guided_edit import (
     changed_guided_comments,
-    parse_focus_lines,
     parse_progress_lines,
     rebuild_guided_edit,
 )
