@@ -32,6 +32,26 @@ def refresh_compass_task_snapshots(
     return {"members": len(emails), "snapshots": len(snapshots)}
 
 
+def refresh_snapshots_now(team_id: str) -> bool:
+    """Synchronously refresh Compass snapshots for this team; fail-open.
+
+    Returns True on success, False when the API key is missing or the
+    refresh raised — callers must treat False as "keep the existing
+    snapshot" and never abort the standup.
+    """
+    api_key = os.environ.get("COMPASS_API_KEY", "")
+    if not api_key:
+        logger.warning("COMPASS_API_KEY missing; skipping synchronous Compass snapshot refresh")
+        return False
+    compass_team = os.environ.get("COMPASS_TEAM", "techops")
+    try:
+        refresh_compass_task_snapshots(api_key, team_id, compass_team=compass_team)
+    except Exception as exc:
+        logger.warning("Synchronous Compass snapshot refresh failed for %s: %s", team_id, exc)
+        return False
+    return True
+
+
 def main() -> int:
     api_key = os.environ.get("COMPASS_API_KEY", "")
     team_id = os.environ.get("PULSE_TEAM_ID", "")
