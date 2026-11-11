@@ -18,7 +18,7 @@ set -euo pipefail
 
 CHECK_HOST_BASE="${CHECK_HOST_BASE:-https://check-host.net}"
 # Public health URL is a parameter; the current pilot host is only the default.
-HEALTH_URL="${COMPASS_HEALTH_URL:-https://nexus-2.tailf73d68.ts.net/pulse/healthz}"
+HEALTH_URL="${COMPASS_HEALTH_URL:-https://PULSE-HOST.example/pulse/healthz}"
 LOCAL_BACKEND_URL="${COMPASS_LOCAL_BACKEND_URL:-http://127.0.0.1:8081/pulse/healthz}"
 LOCAL_CADDYFILE="${COMPASS_CADDYFILE:-$HOME/Caddyfile}"
 EXTERNAL_MIN_COMPLETED=2

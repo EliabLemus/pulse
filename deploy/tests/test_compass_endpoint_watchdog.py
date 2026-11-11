@@ -12,7 +12,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "deploy/check-compass-dsu-endpoints.sh"
 
-DEFAULT_HEALTH_URL = "https://nexus-2.tailf73d68.ts.net/pulse/healthz"
+DEFAULT_HEALTH_URL = "https://PULSE-HOST.example/pulse/healthz"
 LOCAL_BACKEND_URL = "http://127.0.0.1:8081/pulse/healthz"
 
 
