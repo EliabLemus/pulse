@@ -44,7 +44,9 @@ def parse_progress_lines(text: str) -> list[dict[str, Any]]:
         if match:
             key, answer = match.group(1), match.group(2).strip()
             blocked = _is_sin_avances(answer)
-            entries.append({"ticket_key": key, "ticket_title": "", "answer": "" if blocked else answer, "blocked": blocked})
+            entries.append(
+                {"ticket_key": key, "ticket_title": "", "answer": "" if blocked else answer, "blocked": blocked}
+            )
         else:
             entries.append({"ticket_key": None, "ticket_title": "", "answer": line.strip(), "blocked": False})
     return entries

@@ -802,3 +802,62 @@ def test_guided_back_from_priority_preserves_values_and_returns_to_progress():
     session = handlers.state_store.get("T1:U1")
     assert session.wizard_step == 0
     assert session.wizard_answers["focus_items"] == [{"key": "TECH-8", "goal": "Cerrar el despliegue a producción"}]
+
+
+class TestRefreshSessionCompassTasks:
+    """The respond button must show tasks moved to in-progress after the morning DM."""
+
+    def _session(self):
+        return _guided_session(compass_tasks=[{"key": "TECH-8", "title": "old", "statusCategory": "active"}])
+
+    def test_updates_compass_tasks_after_refresh(self):
+        session = self._session()
+        session.compass_tasks = [{"key": "TECH-8", "title": "old", "statusCategory": "active"}]
+        db_mock = MagicMock()
+        db_mock.get_member_email.return_value = "u1@zubale.com"
+
+        new_tasks = [
+            {"key": "TECH-8", "title": "old", "statusCategory": "active"},
+            {"key": "TECH-12", "title": "nueva", "statusCategory": "active"},
+        ]
+
+        with (
+            patch("src.core.db.get_member_email", db_mock.get_member_email, create=True),
+            patch("src.modules.standup.context_worker.refresh_snapshots_now", return_value=True),
+            patch(
+                "src.modules.standup.compass_context.compass_context_for_members",
+                return_value={"U1": new_tasks},
+            ),
+            patch("src.modules.standup.handlers.os.environ", {"COMPASS_API_KEY": "k", "COMPASS_TEAM": "TECH"}),
+        ):
+            handlers._refresh_session_compass_tasks("T1", "U1", session)
+
+        assert [t["key"] for t in session.compass_tasks] == ["TECH-8", "TECH-12"]
+
+    def test_unavailable_context_keeps_existing_snapshot(self):
+        session = self._session()
+        session.compass_tasks = [{"key": "TECH-8", "title": "old", "statusCategory": "active"}]
+        db_mock = MagicMock()
+        db_mock.get_member_email.return_value = "u1@zubale.com"
+
+        with (
+            patch("src.core.db.get_member_email", db_mock.get_member_email, create=True),
+            patch("src.modules.standup.context_worker.refresh_snapshots_now", return_value=True),
+            patch(
+                "src.modules.standup.compass_context.compass_context_for_members",
+                return_value={"U1": None},
+            ),
+            patch("src.modules.standup.handlers.os.environ", {"COMPASS_API_KEY": "k", "COMPASS_TEAM": "TECH"}),
+        ):
+            handlers._refresh_session_compass_tasks("T1", "U1", session)
+
+        assert [t["key"] for t in session.compass_tasks] == ["TECH-8"]
+
+    def test_missing_env_is_a_noop(self):
+        session = self._session()
+        session.compass_tasks = [{"key": "TECH-8", "title": "old", "statusCategory": "active"}]
+
+        with patch("src.modules.standup.handlers.os.environ", {}):
+            handlers._refresh_session_compass_tasks("T1", "U1", session)
+
+        assert [t["key"] for t in session.compass_tasks] == ["TECH-8"]

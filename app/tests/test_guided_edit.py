@@ -119,7 +119,12 @@ def _edit_session(**overrides) -> UserSession:
         guided_edit=True,
         guided_submission_id=42,
         guided_answers=[
-            {"ticket_key": "TECH-8", "ticket_title": "Despliegue Beta", "answer": "Texto previo del avance", "blocked": False},
+            {
+                "ticket_key": "TECH-8",
+                "ticket_title": "Despliegue Beta",
+                "answer": "Texto previo del avance",
+                "blocked": False,
+            },
             {"ticket_key": "TECH-9", "ticket_title": "Observabilidad", "answer": "", "blocked": True},
         ],
         wizard_answers={
@@ -153,7 +158,9 @@ def test_confirmation_dm_includes_guided_edit_button_with_standup_id():
         client = MagicMock()
         client.chat_postMessage.side_effect = [{"ts": "1.1"}, {}]
         registered = _registered()
-        registered[("view", "guided_standup_modal")](AckRecorder(), _view_body({"blockers": {"value": {"value": "Ninguno"}}}), client)
+        registered[("view", "guided_standup_modal")](
+            AckRecorder(), _view_body({"blockers": {"value": {"value": "Ninguno"}}}), client
+        )
 
     dm_calls = [call.kwargs for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "U1"]
     assert dm_calls and dm_calls[-1]["text"] == "✅ Avance enviado."
@@ -207,7 +214,12 @@ def test_guided_edit_prefills_from_stored_session_answers(monkeypatch):
 
 def test_parser_reads_ticket_rows_and_sin_avances():
     entries = parse_progress_lines("TECH-8: Terminé la validación\nTECH-9: Sin avances hoy")
-    assert entries[0] == {"ticket_key": "TECH-8", "ticket_title": "", "answer": "Terminé la validación", "blocked": False}
+    assert entries[0] == {
+        "ticket_key": "TECH-8",
+        "ticket_title": "",
+        "answer": "Terminé la validación",
+        "blocked": False,
+    }
     assert entries[1]["ticket_key"] == "TECH-9"
     assert entries[1]["blocked"] is True
 
@@ -266,7 +278,11 @@ def test_resubmit_updates_same_row_and_enqueues_changed_comments_only(monkeypatc
 
     monkeypatch.setattr(comment_jobs, "update_guided_submission", fake_update)
     with (
-        patch.object(handlers, "claim_guided_delivery", return_value={"channel_id": "C1", "channel_text": "t", "channel_blocks": []}) as claim,
+        patch.object(
+            handlers,
+            "claim_guided_delivery",
+            return_value={"channel_id": "C1", "channel_text": "t", "channel_blocks": []},
+        ) as claim,
         patch.object(handlers, "mark_guided_delivery_delivered") as mark_delivered,
     ):
         _edit_session(wizard_step=0)
@@ -305,7 +321,9 @@ def test_resubmit_updates_same_row_and_enqueues_changed_comments_only(monkeypatc
     assert [c["ticket_key"] for c in updates[0]["comments"]] == ["TECH-8"]
     claim.assert_called_once_with(42)
     mark_delivered.assert_called_once_with(42, "2.2")
-    confirmation = [call.kwargs for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "U1"]
+    confirmation = [
+        call.kwargs for call in client.chat_postMessage.call_args_list if call.kwargs.get("channel") == "U1"
+    ]
     assert confirmation[-1]["text"] == "✅ Avance actualizado."
     assert handlers.state_store.get("T1:U1") is None
 
@@ -332,7 +350,9 @@ def test_resubmit_refuses_outside_edit_window(monkeypatch):
 
 def test_handle_standup_edit_redirects_guided_submission(monkeypatch):
     monkeypatch.setattr(handlers, "can_edit_response", lambda *a, **k: True)
-    monkeypatch.setattr(handlers, "_get_guided_delivery_row", lambda standup_id: {"standup_id": standup_id, "state": "delivered"})
+    monkeypatch.setattr(
+        handlers, "_get_guided_delivery_row", lambda standup_id: {"standup_id": standup_id, "state": "delivered"}
+    )
     opener = MagicMock(return_value=True)
     monkeypatch.setattr(handlers, "_open_guided_edit_session", opener)
     client = MagicMock()

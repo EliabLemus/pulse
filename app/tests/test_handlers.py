@@ -406,6 +406,17 @@ class TestCanEditResponse:
 
             assert can_edit_response("T1", "U1", 1) is True
 
+    def test_default_no_config_keeps_edits_open(self):
+        """Without a workspace config row, edits never close (default None)."""
+        db_mock = MagicMock()
+        db_mock.get_standup_by_id.return_value = self._standup(hours_ago=100)
+        db_mock.get_workspace_config.return_value = {}
+
+        with patch_modules({"src.core.db": db_mock}):
+            from src.modules.standup.handlers import can_edit_response
+
+            assert can_edit_response("T1", "U1", 1) is True
+
     def test_until_report_without_a_schedule_stays_open(self):
         db_mock = MagicMock()
         db_mock.get_standup_by_id.return_value = self._standup(hours_ago=100)

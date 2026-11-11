@@ -822,6 +822,60 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
     )
 
 
+def _refresh_session_compass_tasks(team_id: str, user_id: str, session) -> None:
+    """Refresh an existing session's compass_tasks snapshot in place.
+
+    A session started by the morning DM carries the tickets as of that send.
+    When the user later clicks the respond button, tasks moved to in-progress
+    since then would be invisible. Refresh synchronously with the same
+    fail-open 10 s cap as `_start_standup_session`; on any failure the
+    existing snapshot stays and the wizard renders as before.
+    """
+    if os.environ.get("COMPASS_SYNC_REFRESH", "") == "0" or not os.environ.get("COMPASS_API_KEY"):
+        return
+    try:
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+        from concurrent.futures import TimeoutError as FuturesTimeout  # noqa: PLC0415
+
+        import src.core.db as db  # noqa: PLC0415
+        from src.modules.standup.compass_context import (  # noqa: PLC0415
+            SnapshotCompassClient,
+            compass_context_for_members,
+        )
+        from src.modules.standup.context_worker import refresh_snapshots_now  # noqa: PLC0415
+
+        email = db.get_member_email(team_id, user_id)
+        if not email:
+            return
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(refresh_snapshots_now, team_id)
+            try:
+                future.result(timeout=10)
+            except FuturesTimeout:
+                logger.warning(
+                    "Synchronous Compass refresh timed out after 10s for %s; using existing snapshot", team_id
+                )
+                return
+            except Exception as refresh_exc:
+                logger.warning("Synchronous Compass refresh failed for %s: %s", team_id, refresh_exc)
+                return
+        finally:
+            executor.shutdown(wait=False)
+        context = compass_context_for_members(
+            SnapshotCompassClient(team_id),
+            [{"user_id": user_id, "email": email}],
+            team=os.environ.get("COMPASS_TEAM", ""),
+        )
+        tasks = context.get(user_id)
+        if tasks is None:
+            return  # snapshot unavailable: keep the session's existing tickets
+        session.compass_tasks = tasks
+        state_store.save(session)
+    except Exception as exc:
+        logger.warning("Could not refresh Compass tasks for %s/%s: %s", team_id, user_id, exc)
+
+
 def _complete_standup(user_id: str, session, client) -> None:
     """Finalize a completed standup: send Block Kit confirmation, post to channel, persist, fire events."""
     _clean_thread_cache()
@@ -1367,7 +1421,10 @@ def can_edit_response(team_id: str, user_id: str, standup_id: int) -> bool:
             return False
 
         config = db.get_workspace_config(team_id) or {}
-        edit_window_hours = config.get("edit_window_hours", 4)
+        # No explicit workspace setting means edits stay open: correcting
+        # one's own DSU text is a correction, not a risk. Owners who want a
+        # cap set edit_window_hours in the dashboard settings.
+        edit_window_hours = config.get("edit_window_hours")
         now = datetime.now(tz=timezone.utc)
 
         if edit_window_hours is None:
@@ -1741,6 +1798,10 @@ def register_handlers(app: App) -> None:
             if state_store.clear_guided_wizard_if_expired(cache_key):
                 _say_session_expired(client, user_id)
                 return
+            # The session may hold a snapshot from the morning DM. Tasks moved
+            # to in-progress after that send must be visible here, so refresh
+            # synchronously (fail-open, capped) before rendering the wizard.
+            _refresh_session_compass_tasks(team_id, user_id, session)
             modal = _blocks.guided_standup_modal(
                 session.standup_name or "Standup",
                 session.compass_tasks,

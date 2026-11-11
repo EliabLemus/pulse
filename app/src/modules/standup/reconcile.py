@@ -44,7 +44,7 @@ def collect_open_queue_rows(*, limit: int = 100) -> dict[str, list[dict[str, Any
             cur.execute(
                 """
                 SELECT standup_id, team_id, user_id, schedule_id, standup_date,
-                       state, message_ts, detail, created_at, claimed_at, delivered_at
+                       state, message_ts, created_at, claimed_at, delivered_at
                 FROM guided_standup_deliveries
                 WHERE state <> 'delivered'
                 ORDER BY created_at, standup_id

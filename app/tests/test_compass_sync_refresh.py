@@ -112,7 +112,9 @@ def _run_start_standup(monkeypatch, *, refresh_events, email: str | None = "ana@
 
     if refresh_events:
         monkeypatch.setenv("COMPASS_API_KEY", "cmp_test")
-        monkeypatch.setattr(context_worker, "refresh_snapshots_now", lambda team_id: refresh_events.append("refresh") or True)
+        monkeypatch.setattr(
+            context_worker, "refresh_snapshots_now", lambda team_id: refresh_events.append("refresh") or True
+        )
     else:
         # Any invocation of the refresh is a failure in this mode.
         monkeypatch.setattr(
