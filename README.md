@@ -1,5 +1,7 @@
 <div align="center">
 
+> **Fork note:** this repository is a fork of [morgenruf/morgenruf](https://github.com/morgenruf/morgenruf) (MIT) carrying the Compass DSU pilot for Zubale TechOps. Upstream links below remain the canonical project.
+
 <img src="brand/logo.png" alt="Morgenruf logo: a rooster in sunglasses holding a mug of coffee" width="240">
 
 ### Async standups, coffee chats and kudos for Slack. Free for every seat, hosted or self-hosted, MIT licensed.
