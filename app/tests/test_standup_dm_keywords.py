@@ -128,7 +128,19 @@ def _session():
 def _open_session(step: int = 0):
     from src.core.state import state_store
 
-    state_store.start(KEY, "C0STANDUP", team_id=TEAM, questions=QUESTIONS, standup_name="Daily", schedule_id=7)
+    session = state_store.start(
+        KEY,
+        "C0STANDUP",
+        team_id=TEAM,
+        questions=QUESTIONS,
+        standup_name="Daily",
+        schedule_id=7,
+    )
+    # This helper exercises keyword routing, not Compass context. Keep it on
+    # the established generic test path instead of invoking the durable
+    # Compass-aware finalizer, which has its own focused coverage.
+    session.compass_context_state = ""
+    state_store.save(session)
     for i in range(step):
         state_store.record_answer(KEY, f"answer {i}")
     return state_store.get(KEY)

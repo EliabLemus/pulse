@@ -26,7 +26,7 @@ from src.core.slack_users import (
     is_dead_install,
     member_profile,
 )
-from src.core.state import state_store
+from src.core.state import context_state, state_store
 from src.core.timezones import canonical_tz, local_today
 from src.core.workspace_calendar import is_company_holiday
 
@@ -775,6 +775,8 @@ def _send_standup_to_workspace(
                 except Exception as exc:
                     logger.warning("could not send the stale-snapshot notice to %s: %s", user_id, exc)
 
+            unavailable = snapshot_stale and not compass_tasks_by_user.get(user_id)
+            ctx_state = context_state(compass_tasks_by_user.get(user_id, []), unavailable=unavailable)
             state_store.start(
                 cache_key,
                 channel_id,
@@ -783,6 +785,7 @@ def _send_standup_to_workspace(
                 standup_name=standup_name,
                 schedule_id=schedule_id,
                 compass_tasks=compass_tasks_by_user.get(user_id, []),
+                compass_context_state=ctx_state,
             )
             logger.info("Sent standup DM to %s / %s", team_id, user_id)
         except Exception as exc:

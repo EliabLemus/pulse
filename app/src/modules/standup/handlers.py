@@ -766,8 +766,10 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
     # omitted compass_tasks, so "Answer all at once" opened the legacy
     # three-field modal even when fresh Compass snapshots existed.
     compass_tasks: list[dict] = []
+    ctx_state = "unavailable"
     try:
         import src.core.db as db  # noqa: PLC0415
+        from src.core.state import context_state  # noqa: PLC0415
         from src.modules.standup.compass_context import (  # noqa: PLC0415
             SnapshotCompassClient,
             compass_context_for_members,
@@ -800,8 +802,11 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
                 team=os.environ.get("COMPASS_TEAM", ""),
             )
             compass_tasks = context.get(user_id, [])
+            unavailable = team_id in (db.stale_compass_snapshot_teams() or [])
+            ctx_state = context_state(compass_tasks, unavailable=unavailable)
     except Exception as exc:
         logger.warning("Could not load Compass context for manual standup %s/%s: %s", team_id, user_id, exc)
+        ctx_state = "unavailable"
 
     session = state_store.start(
         cache_key,
@@ -811,6 +816,7 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
         standup_name=standup_name,
         schedule_id=resolved_schedule_id,
         compass_tasks=compass_tasks,
+        compass_context_state=ctx_state,
     )
     import src.modules.standup.blocks as _blocks  # noqa: PLC0415
 
@@ -882,6 +888,11 @@ def _complete_standup(user_id: str, session, client) -> None:
     n_questions = len(session.questions)
     question_answers = session.answers[:n_questions]
     mood = session.answers[n_questions] if len(session.answers) > n_questions else None
+    modern_generic = (
+        bool(getattr(session, "compass_context_state", ""))
+        and session.compass_context_state in {"fresh_empty", "unavailable"}
+        and not getattr(session, "compass_tasks", [])
+    )
 
     # If this is an edit of a prior submission, update the existing row in place
     # instead of creating a duplicate standup record.
@@ -902,8 +913,10 @@ def _complete_standup(user_id: str, session, client) -> None:
             standup_id = session.editing_standup_id
         except Exception as exc:
             logger.warning("Could not update standup %s for %s: %s", session.editing_standup_id, user_id, exc)
-    else:
-        # Persist first so we have the standup ID for the edit button
+    elif not modern_generic:
+        # Persist first so we have the standup ID for the edit button. Modern
+        # generic submissions are persisted atomically with their durable
+        # delivery below, avoiding a duplicate standups row.
         standup_id = _persist_standup(
             session.team_id,
             user_id,
@@ -913,22 +926,90 @@ def _complete_standup(user_id: str, session, client) -> None:
             schedule_id=session.schedule_id,
         )
 
+    channel_message: dict[str, object] | None = None
+    # A session that started with no usable Compass context (empty snapshot or
+    # unavailable/stale) finalizes through the modern durable guided delivery
+    # with ``comments=[]``, never the legacy direct channel post. The renderer
+    # and delivery queue are shared with the with-tasks guided flow so the
+    # channel layout stays consistent either way. Sessions without an explicit
+    # state (directly-constructed old/test sessions) keep the legacy path.
+    if modern_generic:
+        logger.info(
+            "Finalizing standup for %s with context_state=%s renderer=modern_generic",
+            user_id,
+            session.compass_context_state,
+        )
+        answers = dict(getattr(session, "wizard_answers", {}) or {})
+        answers.setdefault("progress", {})
+        answers.setdefault("focus_items", [])
+        answers.setdefault("blockers", question_answers[2] if len(question_answers) > 2 else "")
+        channel_message = build_guided_channel_message(user_id, [], answers)
+    else:
+        answers = {}
+        if not getattr(session, "compass_tasks", []):
+            from src.modules.standup.blocks import linkify_compass_tasks  # noqa: PLC0415
+
+            linked_answers = [linkify_compass_tasks(answer) for answer in question_answers]
+            channel_message = _build_channel_message(
+                user_id,
+                linked_answers[:1],
+                linked_answers[1:2],
+                linked_answers[2] if len(linked_answers) > 2 else "",
+            )
+    formatted = (
+        str(channel_message["text"])
+        if channel_message
+        else _format_standup(user_id, question_answers, mood=mood, questions=session.questions)
+    )
+    channel = session.channel
+    # Modern durable guided delivery for context-less sessions: persist with
+    # comments=[] and publish through the shared delivery queue instead of the
+    # legacy thread post. No schedule or channel means no guided persistence
+    # and no group post.
+    guided_published = False
+    if channel and modern_generic and not is_edit and getattr(session, "schedule_id", None):
+        channel_message = channel_message or build_guided_channel_message(user_id, [], answers)
+        standup_id = _persist_guided_submission(
+            session=session,
+            user_id=user_id,
+            answers=question_answers,
+            channel_text=str(channel_message["text"]),
+            channel_blocks=list(channel_message["blocks"]),  # type: ignore[arg-type]
+            comments=[],
+        )
+        if standup_id is not None:
+            delivery = claim_guided_delivery(standup_id)
+            if delivery is not None:
+                try:
+                    post_kwargs = dict(
+                        channel=delivery["channel_id"],
+                        text=delivery["channel_text"],
+                        unfurl_links=False,
+                        unfurl_media=False,
+                    )
+                    if delivery.get("channel_blocks") is not None:
+                        post_kwargs["blocks"] = delivery["channel_blocks"]
+                    response = client.chat_postMessage(**post_kwargs)
+                except Exception as exc:
+                    logger.warning("Could not post context-less standup %s to channel: %s", standup_id, exc)
+                    mark_guided_delivery_unknown(standup_id, str(exc))
+                else:
+                    message_ts = response.get("ts") if isinstance(response, dict) else None
+                    mark_guided_delivery_delivered(standup_id, message_ts)
+            guided_published = True
+
     confirmation_text = (
         "✏️ *Standup updated!* Your edits have been saved."
         if is_edit
         else f"✅ *Standup submitted!* {edit_rule_text(session.team_id, session.schedule_id)}"
     )
-    # Block Kit confirmation with edit button
     client.chat_postMessage(
         channel=user_id,
         text="✏️ Standup updated!" if is_edit else "✅ Standup submitted!",
         blocks=[
             {
                 "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": confirmation_text,
-                },
+                "text": {"type": "mrkdwn", "text": confirmation_text},
             },
             {
                 "type": "actions",
@@ -945,24 +1026,7 @@ def _complete_standup(user_id: str, session, client) -> None:
         ],
     )
 
-    channel_message = None
-    if not getattr(session, "compass_tasks", []):
-        from src.modules.standup.blocks import linkify_compass_tasks  # noqa: PLC0415
-
-        linked_answers = [linkify_compass_tasks(answer) for answer in question_answers]
-        channel_message = _build_channel_message(
-            user_id,
-            linked_answers[:1],
-            linked_answers[1:2],
-            linked_answers[2] if len(linked_answers) > 2 else "",
-        )
-    formatted = (
-        str(channel_message["text"])
-        if channel_message
-        else _format_standup(user_id, question_answers, mood=mood, questions=session.questions)
-    )
-    channel = session.channel
-    if channel:
+    if channel and not guided_published:
         try:
             import src.core.db as _db  # noqa: PLC0415
 
