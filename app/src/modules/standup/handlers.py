@@ -475,6 +475,18 @@ def _is_guided_submission(standup_id: int) -> bool:
         return False
 
 
+def _ticket_comment_body(user_id: str, comment_author: str, text: str) -> str:
+    """With a per-user key Compass already attributes the comment to its author."""
+    try:
+        from src.modules.standup import user_keys  # noqa: PLC0415
+
+        if user_keys.active_key_for_user(user_id):
+            return text
+    except Exception:
+        pass
+    return f"Avance de {comment_author}:\n{text}"
+
+
 def _guided_comment_author_name(client, user_id: str) -> str:
     """Resolve the contributor name without letting a Slack lookup block delivery."""
     try:
@@ -2689,7 +2701,7 @@ def register_handlers(app: App) -> None:
             text = str(progress_by_key.get(key) or "")
             if text.strip():
                 progress_lines.append(f"{key}: {text}")
-                comments.append({"ticket_key": key, "body": f"Avance de {comment_author}:\n{text}"})
+                comments.append({"ticket_key": key, "body": _ticket_comment_body(user_id, comment_author, text)})
             elif key in marked_sin_avances:
                 progress_lines.append(f"{key}: Sin avances hoy")
         question_answers = [
