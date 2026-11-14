@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # The release version is injected by the TechOps deploy script and persists in
 # both the image metadata and the app's version endpoint.
