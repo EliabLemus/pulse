@@ -1107,13 +1107,50 @@ def guided_standup_modal(
             ]
         )
     else:
-        blocks.extend(
-            [
-                {
-                    "type": "section",
-                    "block_id": "blocker_context",
-                    "text": {"type": "mrkdwn", "text": "*Bloqueos*\nIndica qué necesitas, o escribe `ninguno`."},
+        no_blockers = answers.get("no_blockers")
+        if no_blockers is None:
+            # No explicit check state yet: only a draft that actually reports
+            # a blocker leaves the box unchecked, so a stored real blocker
+            # (including a guided edit of one) never silently collapses to
+            # "no blockers" — and the canonical phrase derives to checked.
+            no_blockers = not reports_a_blocker(str(answers.get("blockers") or ""))
+        no_blockers_option = {
+            "text": {"type": "plain_text", "text": "Sin bloqueos"},
+            "value": "no_blockers",
+        }
+        blocks.append(
+            {
+                "type": "section",
+                "block_id": "blocker_context",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Bloqueos*\n"
+                    + (
+                        "Sin bloqueos activos. Desmarca la casilla si necesitas reportar algo."
+                        if no_blockers
+                        else "Indica qué necesitas, o escribe `ninguno`."
+                    ),
                 },
+            }
+        )
+        blocks.append(
+            {
+                "type": "input",
+                "block_id": "no_blockers",
+                "label": {"type": "plain_text", "text": "¿Tienes bloqueos?"},
+                "optional": True,
+                "element": {
+                    "type": "checkboxes",
+                    # Unique action id: the generic "value" would collide with
+                    # the per-ticket sin-avances checkboxes in block actions.
+                    "action_id": "no_blockers_toggle",
+                    "options": [no_blockers_option],
+                    **({"initial_options": [no_blockers_option]} if no_blockers else {}),
+                },
+            }
+        )
+        if not no_blockers:
+            blocks.append(
                 {
                     "type": "input",
                     "block_id": "blockers",
@@ -1123,9 +1160,8 @@ def guided_standup_modal(
                         "action_id": "value",
                         **_rich_initial(answers.get("blockers", "")),
                     },
-                },
-            ]
-        )
+                }
+            )
 
     if step > 0:
         blocks.append(_guided_nav_block())

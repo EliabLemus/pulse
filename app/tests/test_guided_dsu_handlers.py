@@ -341,7 +341,7 @@ def test_step1_persists_two_focus_items_and_shows_step2():
 
     assert len(ack.calls) == 1
     assert ack.calls[0]["response_action"] == "update"
-    assert _has_block(ack.calls[0]["view"], "blockers")
+    assert _has_block(ack.calls[0]["view"], "no_blockers")  # step 2 now defaults to the checked Sin bloqueos checkbox
     client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session is not None
@@ -455,7 +455,7 @@ def test_step1_secondary_unselected_is_treated_as_optional_none():
 
     assert len(ack.calls) == 1
     assert ack.calls[0]["response_action"] == "update"
-    assert _has_block(ack.calls[0]["view"], "blockers")
+    assert _has_block(ack.calls[0]["view"], "no_blockers")  # step 2 now defaults to the checked Sin bloqueos checkbox
     session = handlers.state_store.get("T1:U1")
     assert session is not None
     assert session.wizard_step == 2
@@ -478,7 +478,7 @@ def test_step1_secondary_none_persists_only_the_primary_focus():
 
     assert len(ack.calls) == 1
     assert ack.calls[0]["response_action"] == "update"
-    assert _has_block(ack.calls[0]["view"], "blockers")
+    assert _has_block(ack.calls[0]["view"], "no_blockers")  # step 2 now defaults to the checked Sin bloqueos checkbox
     client.views_update.assert_not_called()
     session = handlers.state_store.get("T1:U1")
     assert session is not None
@@ -802,6 +802,350 @@ def test_guided_back_from_priority_preserves_values_and_returns_to_progress():
     session = handlers.state_store.get("T1:U1")
     assert session.wizard_step == 0
     assert session.wizard_answers["focus_items"] == [{"key": "TECH-8", "goal": "Cerrar el despliegue a producción"}]
+
+
+def _toggle_body(*, checked: bool, blockers_value: str | None = None) -> dict:
+    values: dict = {
+        "no_blockers": {"no_blockers_toggle": {"selected_options": [{"value": "no_blockers"}] if checked else []}}
+    }
+    if blockers_value is not None:
+        values["blockers"] = {"value": {"value": blockers_value}}
+    return {
+        "user": {"id": "U1", "team_id": "T1"},
+        "team": {"id": "T1"},
+        "trigger_id": "trig-1",
+        "actions": [
+            {
+                "action_id": "no_blockers_toggle",
+                "block_id": "no_blockers",
+                "selected_options": [{"value": "no_blockers"}] if checked else [],
+            }
+        ],
+        "view": {
+            "id": "V-1",
+            "callback_id": "guided_standup_modal",
+            "private_metadata": "T1:U1",
+            "state": {"values": values},
+        },
+    }
+
+
+def _submit_values(*, checked: bool | None, blockers_value: str | None = None) -> dict:
+    values: dict = {}
+    if checked is not None:
+        values["no_blockers"] = {
+            "no_blockers_toggle": {"selected_options": [{"value": "no_blockers"}] if checked else []}
+        }
+    if blockers_value is not None:
+        values["blockers"] = {"value": {"value": blockers_value}}
+    return values
+
+
+class TestNoBlockersToggle:
+    """The `Sin bloqueos` checkbox on step 2: UI, state and submission rules."""
+
+    def _step2_session(self, **answer_overrides) -> None:
+        answers = {
+            "progress": {"TECH-8": "Terminé la validación del pipeline."},
+            "focus_items": [{"key": "TECH-8", "goal": "Cerrar el despliegue a producción"}],
+        }
+        answers.update(answer_overrides)
+        _guided_session(wizard_step=2, wizard_answers=answers)
+
+    def test_uncheck_rerenders_the_same_modal_with_the_field(self):
+        self._step2_session()
+        client = MagicMock()
+        ack = AckRecorder()
+
+        registered = _registered()
+        registered[("action", "no_blockers_toggle")](ack, _toggle_body(checked=False), client)
+
+        assert ack.calls == [{}]
+        kwargs = client.views_update.call_args.kwargs
+        assert kwargs["view_id"] == "V-1"
+        view = kwargs["view"]
+        assert _has_block(view, "blockers")
+        session = handlers.state_store.get("T1:U1")
+        assert session.wizard_answers["no_blockers"] is False
+        # Other answers survive the toggle.
+        assert session.wizard_answers["progress"] == {"TECH-8": "Terminé la validación del pipeline."}
+
+    def test_recheck_collapses_the_field_and_keeps_the_typed_draft(self):
+        self._step2_session()
+        client = MagicMock()
+        ack = AckRecorder()
+        registered = _registered()
+        toggle = registered[("action", "no_blockers_toggle")]
+
+        toggle(AckRecorder(), _toggle_body(checked=False, blockers_value="Necesito acceso a staging"), client)
+        toggle(ack, _toggle_body(checked=True, blockers_value="Necesito acceso a staging"), client)
+
+        assert ack.calls == [{}]
+        view = client.views_update.call_args.kwargs["view"]
+        assert not _has_block(view, "blockers")
+        session = handlers.state_store.get("T1:U1")
+        assert session.wizard_answers["no_blockers"] is True
+        # Draft preserved for a later uncheck.
+        assert session.wizard_answers["blockers"] == "Necesito acceso a staging"
+
+    def test_checked_submission_stores_exactly_the_canonical_phrase(self):
+        from src.modules.standup.blockers import reports_a_blocker
+
+        self._step2_session()
+        client = MagicMock()
+        client.chat_postMessage.side_effect = [{"ts": "1.1"}, {}]
+        ack = AckRecorder()
+
+        with (
+            patch.object(handlers, "_persist_guided_submission", return_value=42) as persist,
+            patch.object(
+                handlers,
+                "claim_guided_delivery",
+                return_value={"channel_id": "C1", "channel_text": "t", "channel_blocks": None},
+            ),
+            patch.object(handlers, "mark_guided_delivery_delivered"),
+        ):
+            registered = _registered()
+            registered[("view", "guided_standup_modal")](ack, _view_body(_submit_values(checked=True)), client)
+
+        assert persist.call_args.kwargs["answers"][2] == "Sin bloqueos"
+        assert reports_a_blocker(persist.call_args.kwargs["answers"][2]) is False
+        assert "*Bloqueos*" not in persist.call_args.kwargs["channel_text"]
+        # The Sin bloqueos badge lives in the context block of the Block Kit body.
+        assert "Sin bloqueos" in str(persist.call_args.kwargs["channel_blocks"])
+
+    def test_unchecked_submission_with_whitespace_is_rejected_on_the_field(self):
+        self._step2_session()
+        client = MagicMock()
+        ack = AckRecorder()
+
+        registered = _registered()
+        registered[("view", "guided_standup_modal")](
+            ack, _view_body(_submit_values(checked=False, blockers_value="   ")), client
+        )
+
+        assert ack.calls == [
+            {"response_action": "errors", "errors": {"blockers": "Describe el bloqueo o marca «Sin bloqueos»."}}
+        ]
+        client.views_update.assert_not_called()
+        session = handlers.state_store.get("T1:U1")
+        assert session.wizard_step == 2
+
+    def test_unchecked_submission_with_substantive_text_persists_it(self):
+        self._step2_session()
+        client = MagicMock()
+        client.chat_postMessage.side_effect = [{"ts": "1.1"}, {}]
+        ack = AckRecorder()
+
+        with (
+            patch.object(handlers, "_persist_guided_submission", return_value=42) as persist,
+            patch.object(
+                handlers,
+                "claim_guided_delivery",
+                return_value={"channel_id": "C1", "channel_text": "t", "channel_blocks": None},
+            ),
+            patch.object(handlers, "mark_guided_delivery_delivered"),
+        ):
+            registered = _registered()
+            registered[("view", "guided_standup_modal")](
+                ack, _view_body(_submit_values(checked=False, blockers_value="Necesito acceso a staging")), client
+            )
+
+        assert persist.call_args.kwargs["answers"][2] == "Necesito acceso a staging"
+
+    def test_back_from_step2_keeps_check_state_and_draft_then_forward_restores_them(self):
+        self._step2_session(no_blockers=False, blockers="Necesito acceso a staging")
+        client = MagicMock()
+        ack = AckRecorder()
+        registered = _registered()
+
+        # Back from step 2 with the field visible saves draft + check state.
+        registered[("action", "guided_back")](
+            ack, _toggle_body(checked=False, blockers_value="Necesito acceso a staging"), client
+        )
+        session = handlers.state_store.get("T1:U1")
+        assert session.wizard_step == 1
+        assert session.wizard_answers["no_blockers"] is False
+        assert session.wizard_answers["blockers"] == "Necesito acceso a staging"
+
+        # Forward again: step 2 rerenders unchecked with the draft, so a real
+        # blocker never silently becomes "no blockers".
+        registered[("view", "guided_standup_modal")](
+            ack,
+            _view_body(
+                {
+                    "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+                    "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+                }
+            ),
+            client,
+        )
+        view = ack.calls[-1]["view"]
+        assert view["callback_id"] == "guided_standup_modal"
+        assert _has_block(view, "blockers")
+        assert "Necesito acceso a staging" in str(view["blocks"])
+        toggle = next(block for block in view["blocks"] if block.get("block_id") == "no_blockers")
+        assert "initial_options" not in toggle["element"]
+
+    def test_back_from_checked_step2_then_forward_stays_checked(self):
+        self._step2_session(no_blockers=True)
+        client = MagicMock()
+        ack = AckRecorder()
+        registered = _registered()
+
+        registered[("action", "guided_back")](ack, _toggle_body(checked=True), client)
+        session = handlers.state_store.get("T1:U1")
+        assert session.wizard_answers["no_blockers"] is True
+
+        registered[("view", "guided_standup_modal")](
+            ack,
+            _view_body(
+                {
+                    "focus_primary_ticket": {"value": {"selected_option": {"value": "TECH-8"}}},
+                    "focus_primary_goal": {"value": {"value": "Cerrar el despliegue a producción"}},
+                }
+            ),
+            client,
+        )
+        view = ack.calls[-1]["view"]
+        assert not _has_block(view, "blockers")
+        toggle = next(block for block in view["blocks"] if block.get("block_id") == "no_blockers")
+        assert toggle["element"]["initial_options"][0]["value"] == "no_blockers"
+
+
+class TestFillInFormRefreshesCompassContext:
+    """Routing (guided vs legacy) happens only after the refresh attempt (AC1)."""
+
+    _ENV = {"COMPASS_API_KEY": "k", "COMPASS_TEAM": "TECH"}
+
+    def test_fresh_empty_session_opens_guided_after_refresh(self):
+        _guided_session(compass_tasks=[], compass_context_state="fresh_empty")
+        client = MagicMock()
+        new_tasks = [{"key": "TECH-12", "title": "nueva", "statusCategory": "active"}]
+
+        with (
+            patch("src.core.db.get_member_email", lambda t, u: "u1@zubale.com", create=True),
+            patch("src.modules.standup.context_worker.refresh_snapshots_now", return_value=True) as refresh,
+            patch(
+                "src.modules.standup.compass_context.compass_context_for_members",
+                return_value={"U1": new_tasks},
+            ),
+            patch("src.modules.standup.handlers.os.environ", self._ENV),
+        ):
+            registered = _registered()
+            registered[("action", "fill_in_form")](AckRecorder(), _form_body(), client)
+
+        refresh.assert_called_once()
+        view = client.views_open.call_args.kwargs["view"]
+        assert view["callback_id"] == "guided_standup_modal"
+        assert _has_block(view, "progress_TECH-12")
+        assert view["private_metadata"] == "T1:U1"
+
+    def test_still_empty_session_opens_the_legacy_form(self):
+        _guided_session(compass_tasks=[], compass_context_state="fresh_empty")
+        client = MagicMock()
+
+        with (
+            patch("src.core.db.get_member_email", lambda t, u: "u1@zubale.com", create=True),
+            patch("src.modules.standup.context_worker.refresh_snapshots_now", return_value=True),
+            patch("src.modules.standup.compass_context.compass_context_for_members", return_value={"U1": []}),
+            patch("src.modules.standup.handlers.os.environ", self._ENV),
+        ):
+            registered = _registered()
+            registered[("action", "fill_in_form")](AckRecorder(), _form_body(), client)
+
+        assert client.views_open.call_args.kwargs["view"]["callback_id"] == "standup_form_modal"
+
+    def test_session_without_compass_context_never_refreshes(self):
+        _guided_session(compass_tasks=[], compass_context_state="unavailable")
+        client = MagicMock()
+
+        with (
+            patch("src.modules.standup.handlers.os.environ", self._ENV),
+            patch.object(
+                handlers,
+                "_refresh_session_compass_tasks",
+                side_effect=AssertionError("legacy sessions must not refresh"),
+            ),
+        ):
+            registered = _registered()
+            registered[("action", "fill_in_form")](AckRecorder(), _form_body(), client)
+
+        assert client.views_open.call_args.kwargs["view"]["callback_id"] == "standup_form_modal"
+
+    def test_refresh_from_fill_in_form_is_capped_at_two_seconds(self):
+        """The trigger_id window is short: a hanging refresh must not eat it."""
+        import time
+
+        _guided_session(compass_tasks=[{"key": "TECH-8", "title": "old"}])
+        client = MagicMock()
+
+        def hanging_refresh(team_id):  # noqa: ANN001
+            time.sleep(3)
+            return True
+
+        with (
+            patch("src.core.db.get_member_email", lambda t, u: "u1@zubale.com", create=True),
+            patch("src.modules.standup.context_worker.refresh_snapshots_now", hanging_refresh),
+            patch(
+                "src.modules.standup.compass_context.compass_context_for_members",
+                return_value={"U1": [{"key": "TECH-8"}]},
+            ),
+            patch("src.modules.standup.handlers.os.environ", self._ENV),
+        ):
+            started = time.monotonic()
+            registered = _registered()
+            registered[("action", "fill_in_form")](AckRecorder(), _form_body(), client)
+            elapsed = time.monotonic() - started
+
+        assert elapsed < 2.9, f"fill_in_form blocked {elapsed:.2f}s behind a hanging refresh"
+        # Fail-open: the modal still opens from the existing session data.
+        assert client.views_open.call_args.kwargs["view"]["callback_id"] == "guided_standup_modal"
+
+    def test_refresh_failure_from_fill_in_form_still_opens_the_modal(self):
+        _guided_session(compass_tasks=[{"key": "TECH-8", "title": "old"}])
+        client = MagicMock()
+
+        with (
+            patch("src.core.db.get_member_email", lambda t, u: "u1@zubale.com", create=True),
+            patch("src.modules.standup.context_worker.refresh_snapshots_now", side_effect=RuntimeError("down")),
+            patch("src.modules.standup.handlers.os.environ", self._ENV),
+        ):
+            registered = _registered()
+            registered[("action", "fill_in_form")](AckRecorder(), _form_body(), client)
+
+        assert client.views_open.call_args.kwargs["view"]["callback_id"] == "guided_standup_modal"
+
+    def test_empty_to_nonempty_transition_resets_the_wizard_ttl(self):
+        """A stale fresh-empty session must not TTL-expire on first submission."""
+        from datetime import datetime, timedelta, timezone
+
+        _guided_session(compass_tasks=[], compass_context_state="fresh_empty")
+        session = handlers.state_store.get("T1:U1")
+        assert session is not None
+        stale_start = datetime.now(timezone.utc) - timedelta(hours=21)
+        session.started_at = stale_start
+        handlers.state_store.save(session)
+        client = MagicMock()
+
+        with (
+            patch("src.core.db.get_member_email", lambda t, u: "u1@zubale.com", create=True),
+            patch("src.modules.standup.context_worker.refresh_snapshots_now", return_value=True),
+            patch(
+                "src.modules.standup.compass_context.compass_context_for_members",
+                return_value={"U1": [{"key": "TECH-12", "title": "nueva"}]},
+            ),
+            patch("src.modules.standup.handlers.os.environ", self._ENV),
+        ):
+            registered = _registered()
+            registered[("action", "fill_in_form")](AckRecorder(), _form_body(), client)
+
+        assert client.views_open.call_args.kwargs["view"]["callback_id"] == "guided_standup_modal"
+        session = handlers.state_store.get("T1:U1")
+        assert session is not None
+        assert session.compass_tasks
+        assert session.started_at > stale_start
+        assert not handlers.state_store.clear_guided_wizard_if_expired("T1:U1")
 
 
 class TestRefreshSessionCompassTasks:

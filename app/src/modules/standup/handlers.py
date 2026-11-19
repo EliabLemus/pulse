@@ -500,6 +500,12 @@ def _guided_comment_author_name(client, user_id: str) -> str:
     return user_id
 
 
+def _no_blockers_checked(values: dict) -> bool:
+    """Whether the step-2 ``Sin bloqueos`` checkbox is selected in a payload."""
+    selected = values.get("no_blockers", {}).get("no_blockers_toggle", {}).get("selected_options", [])
+    return any(isinstance(option, dict) and option.get("value") == "no_blockers" for option in selected)
+
+
 def _guided_focus_items(values: dict) -> tuple[list[dict[str, str]], dict[str, str]]:
     """Normalize the two focus controls and report Slack field errors."""
 
@@ -840,14 +846,16 @@ def _start_standup_session(user_id: str, team_id: str, client, schedule_id: int 
     )
 
 
-def _refresh_session_compass_tasks(team_id: str, user_id: str, session) -> None:
+def _refresh_session_compass_tasks(team_id: str, user_id: str, session, timeout: float = 10) -> None:
     """Refresh an existing session's compass_tasks snapshot in place.
 
     A session started by the morning DM carries the tickets as of that send.
     When the user later clicks the respond button, tasks moved to in-progress
-    since then would be invisible. Refresh synchronously with the same
-    fail-open 10 s cap as `_start_standup_session`; on any failure the
-    existing snapshot stays and the wizard renders as before.
+    since then would be invisible. Refresh synchronously, fail-open: on any
+    failure the existing snapshot stays and the wizard renders as before.
+    ``timeout`` caps the wait — the default matches ``_start_standup_session``
+    (10 s); the ``fill_in_form`` caller passes 2 because its ``trigger_id``
+    gives ``views_open`` a much shorter window.
     """
     if os.environ.get("COMPASS_SYNC_REFRESH", "") == "0" or not os.environ.get("COMPASS_API_KEY"):
         return
@@ -869,10 +877,12 @@ def _refresh_session_compass_tasks(team_id: str, user_id: str, session) -> None:
         try:
             future = executor.submit(refresh_snapshots_now, team_id)
             try:
-                future.result(timeout=10)
+                future.result(timeout=timeout)
             except FuturesTimeout:
                 logger.warning(
-                    "Synchronous Compass refresh timed out after 10s for %s; using existing snapshot", team_id
+                    "Synchronous Compass refresh timed out after %gs for %s; using existing snapshot",
+                    timeout,
+                    team_id,
                 )
                 return
             except Exception as refresh_exc:
@@ -888,7 +898,16 @@ def _refresh_session_compass_tasks(team_id: str, user_id: str, session) -> None:
         tasks = context.get(user_id)
         if tasks is None:
             return  # snapshot unavailable: keep the session's existing tickets
+        was_empty = not session.compass_tasks
         session.compass_tasks = tasks
+        if was_empty and tasks:
+            # A fresh-empty session kept its morning started_at; now that it
+            # carries tasks that age would TTL-expire the wizard at its first
+            # submission, so the wizard starts counting from this transition.
+            from datetime import datetime as _dt  # noqa: PLC0415
+            from datetime import timezone as _tz  # noqa: PLC0415
+
+            session.started_at = _dt.now(_tz.utc)
         state_store.save(session)
     except Exception as exc:
         logger.warning("Could not refresh Compass tasks for %s/%s: %s", team_id, user_id, exc)
@@ -1834,11 +1853,18 @@ def register_handlers(app: App) -> None:
             if not errors:
                 answers["focus_items"] = focus_items
         elif session.wizard_step == 2:
+            if "no_blockers" in values:
+                answers["no_blockers"] = _no_blockers_checked(values)
             field = values.get("blockers", {}).get("value", {})
             rich_text = field.get("rich_text_value")
-            answers["blockers"] = (
-                _blocks.rich_text_to_mrkdwn(rich_text) if rich_text else _blocks.escape_mrkdwn(field.get("value") or "")
-            )
+            if field:
+                # Field on screen: save the typed draft. Hidden (checked): the
+                # earlier draft stays so unchecking later restores it.
+                answers["blockers"] = (
+                    _blocks.rich_text_to_mrkdwn(rich_text)
+                    if rich_text
+                    else _blocks.escape_mrkdwn(field.get("value") or "")
+                )
 
         session.wizard_step -= 1
         session.wizard_answers = answers
@@ -1847,6 +1873,49 @@ def register_handlers(app: App) -> None:
             session.standup_name or "Standup",
             session.compass_tasks,
             step=session.wizard_step,
+            answers=answers,
+        )
+        modal["private_metadata"] = cache_key
+        client.views_update(view_id=view["id"], view=modal)
+
+    @app.action("no_blockers_toggle")
+    def handle_no_blockers_toggle(ack, body, client):  # noqa: ANN001
+        """Show/hide the step-2 free-text blocker field without losing state.
+
+        Block actions cannot answer with a submit-style response_action, so
+        this ack()s first and redraws the same view with ``views_update``.
+        """
+        ack()
+        user_id: str = body["user"]["id"]
+        team_id: str = body["user"]["team_id"]
+        view = body.get("view") or {}
+        cache_key = view.get("private_metadata") or f"{team_id}:{user_id}"
+        session = state_store.get(cache_key)
+        if not session or not session.compass_tasks:
+            _say_session_expired(client, user_id)
+            return
+        if state_store.clear_guided_wizard_if_expired(cache_key):
+            _say_session_expired(client, user_id)
+            return
+
+        import src.modules.standup.blocks as _blocks  # noqa: PLC0415
+
+        answers = dict(session.wizard_answers or {})
+        values = view.get("state", {}).get("values", {})
+        # Keep whatever was typed before the field is hidden again.
+        field = values.get("blockers", {}).get("value", {})
+        rich_text = field.get("rich_text_value")
+        if field:
+            answers["blockers"] = (
+                _blocks.rich_text_to_mrkdwn(rich_text) if rich_text else _blocks.escape_mrkdwn(field.get("value") or "")
+            )
+        answers["no_blockers"] = _no_blockers_checked(values)
+        session.wizard_answers = answers
+        state_store.save(session)
+        modal = _blocks.guided_standup_modal(
+            session.standup_name or "Standup",
+            session.compass_tasks,
+            step=2,
             answers=answers,
         )
         modal["private_metadata"] = cache_key
@@ -1866,9 +1935,11 @@ def register_handlers(app: App) -> None:
 
         import src.modules.standup.blocks as _blocks  # noqa: PLC0415
 
-        # A session carrying open Compass tasks runs the guided wizard instead
-        # of the flat form, at the step already reached.
-        if session.compass_tasks:
+        # A session known to carry Compass context — open tasks now, or a
+        # snapshot that read fresh-empty at the morning send — refreshes
+        # BEFORE the guided/legacy decision: tasks moved to in-progress since
+        # then must be visible. Sessions with no Compass context stay legacy.
+        if session.compass_tasks or session.compass_context_state == "fresh_empty":
             # Reopening a wizard abandoned past its TTL starts over: its step
             # renders a sprint snapshot that may no longer match Compass.
             if state_store.clear_guided_wizard_if_expired(cache_key):
@@ -1877,7 +1948,8 @@ def register_handlers(app: App) -> None:
             # The session may hold a snapshot from the morning DM. Tasks moved
             # to in-progress after that send must be visible here, so refresh
             # synchronously (fail-open, capped) before rendering the wizard.
-            _refresh_session_compass_tasks(team_id, user_id, session)
+            _refresh_session_compass_tasks(team_id, user_id, session, timeout=2)
+        if session.compass_tasks:
             modal = _blocks.guided_standup_modal(
                 session.standup_name or "Standup",
                 session.compass_tasks,
@@ -2668,7 +2740,22 @@ def register_handlers(app: App) -> None:
             if not errors:
                 answers["focus_items"] = focus_items
         else:
-            answers["blockers"] = _field_text("blockers")
+            if "no_blockers" in values:
+                checked = _no_blockers_checked(values)
+                answers["no_blockers"] = checked
+                if checked:
+                    # The checked control wins and stores the canonical phrase.
+                    answers["blockers"] = "Sin bloqueos"
+                else:
+                    text = _field_text("blockers")
+                    if not text.strip():
+                        errors["blockers"] = "Describe el bloqueo o marca «Sin bloqueos»."
+                    else:
+                        answers["blockers"] = text
+            else:
+                # A step-2 modal opened before the checkbox existed: the
+                # free-text answer is stored as typed, as before.
+                answers["blockers"] = _field_text("blockers")
 
         if errors:
             # Slack keeps the modal open with the message next to the field;

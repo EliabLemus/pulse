@@ -111,6 +111,49 @@ def test_step_three_of_three_keeps_back_and_final_submit_text():
     assert modal["submit"]["text"] == "Enviar"
 
 
+def test_step_three_defaults_to_selected_no_blockers_checkbox_without_text_field():
+    modal = guided_standup_modal("Mi DSU", _TASKS, step=2, answers={}, today="2026-10-06")
+
+    toggle = next(block for block in modal["blocks"] if block.get("block_id") == "no_blockers")
+    assert toggle["type"] == "input"
+    assert toggle["element"]["type"] == "checkboxes"
+    assert toggle["element"]["action_id"] == "no_blockers_toggle"
+    assert toggle["element"]["options"][0]["text"]["text"] == "Sin bloqueos"
+    assert toggle["element"]["options"][0]["value"] == "no_blockers"
+    assert toggle["element"]["initial_options"][0]["value"] == "no_blockers"
+    # Checked by default means no free-text blocker input on screen.
+    assert not any(block.get("block_id") == "blockers" for block in modal["blocks"])
+
+
+def test_step_three_unchecked_renders_the_free_text_field_with_the_draft():
+    modal = guided_standup_modal(
+        "Mi DSU",
+        _TASKS,
+        step=2,
+        answers={"no_blockers": False, "blockers": "Necesito acceso a staging"},
+        today="2026-10-06",
+    )
+
+    toggle = next(block for block in modal["blocks"] if block.get("block_id") == "no_blockers")
+    assert "initial_options" not in toggle["element"]
+    field = next(block for block in modal["blocks"] if block.get("block_id") == "blockers")
+    assert "Necesito acceso a staging" in str(field["element"].get("initial_value", ""))
+
+
+def test_step_three_derives_the_check_from_the_stored_draft_when_flag_absent():
+    # A stored real blocker can never silently collapse into "no blockers".
+    modal = guided_standup_modal("Mi DSU", _TASKS, step=2, answers={"blockers": "Necesito acceso"}, today="2026-10-06")
+    toggle = next(block for block in modal["blocks"] if block.get("block_id") == "no_blockers")
+    assert "initial_options" not in toggle["element"]
+    assert any(block.get("block_id") == "blockers" for block in modal["blocks"])
+
+    # The canonical phrase derives the other way: checked, no field.
+    modal = guided_standup_modal("Mi DSU", _TASKS, step=2, answers={"blockers": "Sin bloqueos"}, today="2026-10-06")
+    toggle = next(block for block in modal["blocks"] if block.get("block_id") == "no_blockers")
+    assert toggle["element"]["initial_options"][0]["value"] == "no_blockers"
+    assert not any(block.get("block_id") == "blockers" for block in modal["blocks"])
+
+
 def test_back_control_does_not_replace_ticket_title_link_or_overdue_output():
     modal = guided_standup_modal("Mi DSU", _TASKS, step=1, answers={}, today="2026-10-06")
 

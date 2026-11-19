@@ -250,6 +250,41 @@ def test_rebuild_guided_edit_without_anything_recoverable_returns_none():
     assert rebuild_guided_edit({"yesterday": "", "today": "", "blockers": ""}, []) is None
 
 
+def test_guided_edit_of_stored_sin_bloqueos_reopens_checked_without_text_field():
+    from src.modules.standup.blocks import guided_standup_modal
+
+    row = {
+        "yesterday": "TECH-8: Terminé la validación",
+        "today": "TECH-8: Cerrar el despliegue",
+        "blockers": "Sin bloqueos",
+    }
+    rebuilt = rebuild_guided_edit(row, [dict(task) for task in TASKS])
+    assert rebuilt is not None
+    modal = guided_standup_modal("DSU", rebuilt["compass_tasks"], step=2, answers=rebuilt["wizard_answers"])
+
+    toggle = next(block for block in modal["blocks"] if block.get("block_id") == "no_blockers")
+    assert toggle["element"]["initial_options"][0]["value"] == "no_blockers"
+    assert not any(block.get("block_id") == "blockers" for block in modal["blocks"])
+
+
+def test_guided_edit_of_a_real_blocker_reopens_unchecked_with_the_text():
+    from src.modules.standup.blocks import guided_standup_modal
+
+    row = {
+        "yesterday": "TECH-8: Terminé la validación",
+        "today": "TECH-8: Cerrar el despliegue",
+        "blockers": "Necesito acceso a staging",
+    }
+    rebuilt = rebuild_guided_edit(row, [dict(task) for task in TASKS])
+    assert rebuilt is not None
+    modal = guided_standup_modal("DSU", rebuilt["compass_tasks"], step=2, answers=rebuilt["wizard_answers"])
+
+    toggle = next(block for block in modal["blocks"] if block.get("block_id") == "no_blockers")
+    assert "initial_options" not in toggle["element"]
+    field = next(block for block in modal["blocks"] if block.get("block_id") == "blockers")
+    assert "Necesito acceso a staging" in str(field["element"].get("initial_value", ""))
+
+
 def test_changed_guided_comments_only_keeps_text_that_changed():
     previous = [
         {"ticket_key": "TECH-8", "answer": "Texto previo del avance", "blocked": False},
